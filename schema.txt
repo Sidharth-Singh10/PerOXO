@@ -1,0 +1,18 @@
+scyllaDB schema
+
+CREATE TABLE direct_messages (
+  conversation_id text,      -- e.g. "userA_userB" (with sorted user IDs)
+  message_id timeuuid,       -- used as the clustering key for ordering messages by time
+  sender_id uuid,            -- who sent the message
+  recipient_id uuid,         -- who receives the message
+  message_text text,
+  created_at timestamp,
+  PRIMARY KEY ((conversation_id), message_id)
+) WITH CLUSTERING ORDER BY (message_id ASC);
+
+CREATE TABLE user_conversations (
+  user_id uuid,
+  conversation_id text,
+  last_message timeuuid,
+  PRIMARY KEY (user_id, conversation_id)
+);

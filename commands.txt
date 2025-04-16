@@ -1,0 +1,6 @@
+docker run --name scylla -d scylladb/scylla
+
+docker exec -it scylla nodetool status
+
+//connect to node
+docker exec -it scylla cqlsh
