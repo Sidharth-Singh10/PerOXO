@@ -1,6 +1,5 @@
 use serde::{Serialize, Deserialize};
 
-// Message types for our chat application
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ChatMessage {
     // Direct message to a specific user
