@@ -1,8 +1,8 @@
-use tonic::{transport::Server, Request, Response, Status};
-use sqlx::{PgPool, FromRow};
+use dotenv::dotenv;
 use matcher::matcher_service_server::{MatcherService, MatcherServiceServer};
 use matcher::{GetMatchedUsersRequest, GetMatchedUsersResponse};
-
+use sqlx::{FromRow, PgPool};
+use tonic::{Request, Response, Status, transport::Server};
 pub mod matcher {
     tonic::include_proto!("matcher");
 }
@@ -49,9 +49,10 @@ impl MatcherService for MyMatcherService {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
+
     let addr = "[::1]:50051".parse()?;
-    let db_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
+    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db = PgPool::connect(&db_url).await?;
 
     println!("MatcherService gRPC server running on {}", addr);
