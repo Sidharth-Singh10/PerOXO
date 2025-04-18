@@ -4,12 +4,19 @@ use axum::{Json, extract::State, response::IntoResponse};
 use tokio::sync::{Mutex, broadcast};
 
 use crate::chat::ChatMessage;
+use crate::state::matcher::matcher_service_client::MatcherServiceClient;
+
+pub mod matcher {
+    tonic::include_proto!("matcher");
+}
 
 pub struct AppState {
     // Map of username to their broadcast channel
     pub users: Mutex<HashMap<String, broadcast::Sender<ChatMessage>>>,
     // Track who's online
     pub online_users: Mutex<Vec<String>>,
+
+    pub matcher_client: MatcherServiceClient<tonic::transport::Channel>,
 }
 
 // Broadcast presence updates to all users

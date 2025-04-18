@@ -6,7 +6,7 @@ use axum::{
     routing::{any, get},
 };
 use socket::dm_socket;
-use state::{AppState, get_online_users};
+use state::{get_online_users, matcher::matcher_service_client::MatcherServiceClient, AppState};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -41,9 +41,14 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let matcher_client = MatcherServiceClient::connect("http://[::1]:50051")
+        .await
+        .expect("Failed to connect to gRPC matcher service");
+
     let state = Arc::new(AppState {
         users: Mutex::new(HashMap::new()),
         online_users: Mutex::new(Vec::new()),
+        matcher_client,
     });
 
     let cors = CorsLayer::new()

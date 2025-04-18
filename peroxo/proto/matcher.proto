@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package matcher;
+
+service MatcherService {
+  rpc GetMatchedUsers(GetMatchedUsersRequest) returns (GetMatchedUsersResponse);
+}
+
+message GetMatchedUsersRequest {
+  int32 user_id = 1;
+}
+
+message GetMatchedUsersResponse {
+  repeated int32 matched_user_ids = 1;
+}
