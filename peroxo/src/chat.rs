@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ChatMessage {
@@ -20,4 +20,3 @@ pub enum PresenceStatus {
     Online,
     Offline,
 }
-

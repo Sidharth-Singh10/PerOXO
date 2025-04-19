@@ -3,7 +3,10 @@ use std::sync::Arc;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 
-use crate::{chat::{ChatMessage, PresenceStatus}, state::{broadcast_presence, AppState}};
+use crate::{
+    chat::{ChatMessage, PresenceStatus},
+    state::{AppState, broadcast_presence},
+};
 
 pub async fn dm_socket(mut socket: WebSocket, username: String, state: Arc<AppState>) {
     // Add user to online users
@@ -16,7 +19,9 @@ pub async fn dm_socket(mut socket: WebSocket, username: String, state: Arc<AppSt
             user: username.clone(),
             status: PresenceStatus::Online,
         };
-        broadcast_presence(&state, &presence_msg).await;
+
+        // Fix the conversion of username to i32 (We operate on user IDs not on usernames)
+        broadcast_presence(&state, &presence_msg, username.parse::<i32>().unwrap()).await;
     }
 
     // Get the user's channel
@@ -74,10 +79,12 @@ pub async fn dm_socket(mut socket: WebSocket, username: String, state: Arc<AppSt
 
         // Broadcast that this user is now offline
         let presence_msg = ChatMessage::Presence {
-            user: username,
+            user: username.clone(),
             status: PresenceStatus::Offline,
         };
-        broadcast_presence(&state, &presence_msg).await;
+
+        // Fix the conversion of username to i32 (We operate on user IDs not on usernames)
+        broadcast_presence(&state, &presence_msg, username.parse::<i32>().unwrap()).await;
     });
 
     // Wait for either task to finish
