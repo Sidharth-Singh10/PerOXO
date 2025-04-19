@@ -1,3 +1,3 @@
 fn main() {
-    tonic_build::compile_protos("proto/matcher.proto").unwrap();
+    tonic_build::compile_protos("proto/user_service.proto").unwrap();
 }

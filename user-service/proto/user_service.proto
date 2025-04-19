@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package matcher;
+package user_service;
 
-service MatcherService {
+service UserService {
   rpc GetMatchedUsers(GetMatchedUsersRequest) returns (GetMatchedUsersResponse);
 }
 

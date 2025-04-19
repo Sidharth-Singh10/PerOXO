@@ -6,11 +6,12 @@ use axum::{
     routing::{any, get},
 };
 use socket::dm_socket;
-use state::{get_online_users, matcher::matcher_service_client::MatcherServiceClient, AppState};
+use state::{get_online_users, AppState};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use crate::state::matcher::user_service_client::UserServiceClient;
 
 mod chat;
 mod socket;
@@ -41,7 +42,7 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let matcher_client = MatcherServiceClient::connect("http://[::1]:50051")
+    let matcher_client = UserServiceClient::connect("http://[::1]:50051")
         .await
         .expect("Failed to connect to gRPC matcher service");
 

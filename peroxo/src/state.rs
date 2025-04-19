@@ -1,13 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
+use crate::chat::ChatMessage;
+use crate::state::matcher::user_service_client::UserServiceClient;
 use axum::{Json, extract::State, response::IntoResponse};
 use tokio::sync::{Mutex, broadcast};
 
-use crate::chat::ChatMessage;
-use crate::state::matcher::matcher_service_client::MatcherServiceClient;
-
 pub mod matcher {
-    tonic::include_proto!("matcher");
+    tonic::include_proto!("user_service");
 }
 
 pub struct AppState {
@@ -16,7 +15,7 @@ pub struct AppState {
     // Track who's online
     pub online_users: Mutex<Vec<String>>,
 
-    pub matcher_client: MatcherServiceClient<tonic::transport::Channel>,
+    pub matcher_client: UserServiceClient<tonic::transport::Channel>,
 }
 
 // Broadcast presence updates to all users
