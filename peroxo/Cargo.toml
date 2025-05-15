@@ -5,7 +5,6 @@ edition = "2024"
 
 
 [dependencies]
-scylla = "1.1.0"
 tokio = { version = "1.44.2", features = ["full"] }
 axum = { version = "0.8.3", features = ["macros", "ws"] }
 tracing = "0.1.41"

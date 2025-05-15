@@ -34,7 +34,7 @@ pub async fn broadcast_presence(state: &Arc<AppState>, presence_msg: &ChatMessag
 
             // Convert user IDs to usernames (assuming you have a mapping or the IDs are the usernames as strings)
             for matched_id in matched_user_ids {
-                let username = matched_id.to_string(); // Adjust this if your username mapping is different
+                let username = matched_id.to_string(); 
 
                 if let Some(tx) = users.get(&username) {
                     let _ = tx.send(presence_msg.clone());

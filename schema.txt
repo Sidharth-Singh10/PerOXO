@@ -1,5 +1,9 @@
 scyllaDB schema
 
+// Each unique conversation_id maps to one partition (not table), 
+// and all messages in that conversation are stored together in that partition.
+// message_id is the clustering key, which determines order within that partition.
+
 CREATE TABLE direct_messages (
   conversation_id text,      -- e.g. "userA_userB" (with sorted user IDs)
   message_id timeuuid,       -- used as the clustering key for ordering messages by time

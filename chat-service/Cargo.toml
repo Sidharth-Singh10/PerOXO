@@ -1,0 +1,15 @@
+[package]
+name = "chat-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+scylla = "1.1.0"
+tokio = { version = "1.44.2", features = ["full"] }
+prost = "0.13.5"
+tonic = { version = "0.13.0", features = ["transport"] }
+uuid = { version = "1", features = ["v1", "std"] }
+chrono ={ version = "0.4", features = ["serde"] }
+
+[build-dependencies]
+tonic-build = "0.13.0"
