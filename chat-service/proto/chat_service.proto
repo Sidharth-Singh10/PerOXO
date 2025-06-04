@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package chat_service;
+
+service ChatService {
+  // Write a direct message between two users
+  rpc WriteDM(WriteDMRequest) returns (WriteDMResponse);
+
+  // Fetch all conversations for a user
+  rpc FetchUserConversations(FetchUserConversationsRequest)
+      returns (FetchUserConversationsResponse);
+
+  // Fetch conversation history for a specific conversation
+  rpc FetchConversationHistory(FetchConversationHistoryRequest)
+      returns (FetchConversationHistoryResponse);
+}
+
+message WriteDMRequest {
+  int32 sender_id = 1;
+  int32 receiver_id = 2;
+  string message = 3;
+}
+
+message WriteDMResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message FetchUserConversationsRequest { int32 user_id = 1; }
+
+message FetchUserConversationsResponse {
+  bool success = 1;
+  string error_message = 2;
+  repeated UserConversation conversations = 3;
+}
+
+message DirectMessage {
+  string conversation_id = 1;
+  string message_id = 2;
+  int32 sender_id = 3;
+  int32 recipient_id = 4;
+  string message_text = 5;
+  int64 created_at = 6;
+}
+
+message UserConversation {
+  string conversation_id = 1;
+  int64 last_message = 2;
+}
+
+message FetchConversationHistoryRequest { string conversation_id = 1; }
+
+message FetchConversationHistoryResponse {
+  bool success = 1;
+  string error_message = 2;
+  repeated ConversationMessage messages = 3;
+}
+
+message ConversationMessage {
+  string message_id = 1; // UUID as string
+  string message_text = 2;
+  int32 sender_id = 3;
+  int32 recipient_id = 4;
+}

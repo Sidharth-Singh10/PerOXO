@@ -1,9 +1,10 @@
-use chrono::{DateTime, Utc};
 use scylla::{
     client::session::Session,
     statement::{
-        batch::{Batch, BatchType}, Consistency
-    }, value::{CqlDate, CqlTimestamp},
+        Consistency,
+        batch::{Batch, BatchType},
+    },
+    value::CqlTimestamp,
 };
 use uuid::Uuid;
 
@@ -20,42 +21,57 @@ pub async fn fetch_user_conversations(
     session: &Session,
     user_id: i32,
 ) -> Result<Vec<(String, CqlTimestamp)>, Box<dyn std::error::Error>> {
-    // Query to get all conversations for a user
-    let query = "SELECT conversation_id, last_message FROM user_conversations WHERE user_id = ?";
+    let query =
+        "SELECT conversation_id, last_message FROM affinity.user_conversations WHERE user_id = ?";
     let result = session.query_unpaged(query, (user_id,)).await?;
-    
-    // Convert QueryResult to QueryRowsResult
+
     let rows_result = result.into_rows_result()?;
-    
-    // Use the rows<T>() method with the correct types
+
     let typed_rows = rows_result.rows::<(String, CqlTimestamp)>()?;
-    
-    // Collect the rows, handling potential deserialization errors
+
     let mut conversations = Vec::new();
     for row_result in typed_rows {
         conversations.push(row_result?);
     }
-    
+
     Ok(conversations)
 }
+pub async fn fetch_conversation_history(
+    session: &Session,
+    conversation_id: &str,
+) -> Result<Vec<(Uuid, String, i32, i32)>, Box<dyn std::error::Error>> {
+    let query = "SELECT message_id, message_text, sender_id, recipient_id FROM affinity.direct_messages WHERE conversation_id = ? ORDER BY message_id ASC";
+
+    let result = session.query_unpaged(query, (conversation_id,)).await?;
+    let rows_result = result.into_rows_result()?;
+    let typed_rows = rows_result.rows::<(Uuid, String, i32, i32)>()?;
+
+    let mut messages = Vec::new();
+    for row_result in typed_rows {
+        messages.push(row_result?);
+    }
+
+    Ok(messages)
+}
+
 pub async fn write_direct_message(
     session: &Session,
     message: DirectMessage,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut batch = Batch::new(BatchType::Logged);
 
-    batch.append_statement("INSERT INTO direct_messages (conversation_id, message_id, sender_id, recipient_id, message_text, created_at) VALUES (?, ?, ?, ?, ?, ?)");
+    batch.append_statement("INSERT INTO affinity.direct_messages (conversation_id, message_id, sender_id, recipient_id, message_text, created_at) VALUES (?, ?, ?, ?, ?, ?)");
     batch.append_statement(
-        "UPDATE user_conversations SET last_message = ? WHERE user_id = ? AND conversation_id = ?",
+        "UPDATE affinity.user_conversations SET last_message = ? WHERE user_id = ? AND conversation_id = ?",
     );
     batch.append_statement(
-        "UPDATE user_conversations SET last_message = ? WHERE user_id = ? AND conversation_id = ?",
+        "UPDATE affinity.user_conversations SET last_message = ? WHERE user_id = ? AND conversation_id = ?",
     );
 
-    batch.set_consistency(Consistency::Quorum);
+    // for development purposes, setting consistency to One
+    batch.set_consistency(Consistency::One);
 
     let batch_values = (
-        // Values for INSERT INTO direct_messages
         (
             &message.conversation_id,
             message.message_id,
@@ -64,13 +80,11 @@ pub async fn write_direct_message(
             &message.message_text,
             message.created_at,
         ),
-        // Values for first UPDATE user_conversations (sender)
         (
             message.created_at,
             message.sender_id,
             &message.conversation_id,
         ),
-        // Values for second UPDATE user_conversations (recipient)
         (
             message.created_at,
             message.recipient_id,
@@ -78,7 +92,6 @@ pub async fn write_direct_message(
         ),
     );
 
-    // Execute the batch with all values
     session.batch(&batch, batch_values).await?;
 
     Ok(())
