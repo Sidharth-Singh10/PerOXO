@@ -1,4 +1,5 @@
 use crate::chat_services::ChatServiceImpl;
+use crate::migrations::run_database_migrations;
 use crate::rabbit::MessagePublisher;
 use lapin::Connection;
 use lapin::ConnectionProperties;
@@ -16,10 +17,13 @@ use crate::rabbit::MessageConsumer;
 pub mod chat_service {
     tonic::include_proto!("chat_service");
 }
+mod migrations;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     //  Scylla session
+    run_database_migrations("127.0.0.1:9042").await?;
+
     let profile = ExecutionProfile::builder()
         .consistency(Consistency::One)
         .build();
