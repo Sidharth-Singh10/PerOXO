@@ -96,3 +96,28 @@ pub async fn write_direct_message(
 
     Ok(())
 }
+pub fn create_dm(sender_id: i32, recipient_id: i32, message_text: String) -> DirectMessage {
+    // Sort user IDs to ensure consistent conversation_id format
+    let (first_id, second_id) = if sender_id < recipient_id {
+        (sender_id, recipient_id)
+    } else {
+        (recipient_id, sender_id)
+    };
+
+    let conversation_id = format!("{}_{}", first_id, second_id);
+
+    let message_id = Uuid::new_v4();
+
+    // Think about possibility of managing timestamps in a more efficient way
+    let current_time_millis = chrono::Utc::now().timestamp_millis();
+    let created_at = CqlTimestamp(current_time_millis);
+
+    DirectMessage {
+        conversation_id,
+        message_id,
+        sender_id,
+        recipient_id,
+        message_text,
+        created_at,
+    }
+}
