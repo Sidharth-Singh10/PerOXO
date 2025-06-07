@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use crate::queries::DirectMessage;
-use crate::write_direct_message;
+use crate::queries::{write_direct_message, DirectMessage};
 use lapin::{
     BasicProperties, Channel, Connection,
     options::{
