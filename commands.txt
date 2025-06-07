@@ -1,4 +1,4 @@
-docker run --name scylla -d scylladb/scylla
+docker run --name scylla -p 9042:9042 -d scylladb/scylla
 
 docker exec -it scylla nodetool status
 

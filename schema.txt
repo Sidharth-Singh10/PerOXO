@@ -5,10 +5,10 @@ scyllaDB schema
 // message_id is the clustering key, which determines order within that partition.
 
 CREATE TABLE direct_messages (
-  conversation_id text,      -- e.g. "userA_userB" (with sorted user IDs)
-  message_id uuid,       -- used as the clustering key for ordering messages by time
-  sender_id int,            -- who sent the message
-  recipient_id int,         -- who receives the message
+  conversation_id text,      
+  message_id uuid,       
+  sender_id int,            
+  recipient_id int,         
   message_text text,
   created_at timestamp,
   PRIMARY KEY ((conversation_id), message_id)
