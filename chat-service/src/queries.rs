@@ -57,7 +57,7 @@ pub async fn fetch_conversation_history(
 pub async fn write_direct_message(
     session: &Session,
     message: DirectMessage,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut batch = Batch::new(BatchType::Logged);
 
     batch.append_statement("INSERT INTO affinity.direct_messages (conversation_id, message_id, sender_id, recipient_id, message_text, created_at) VALUES (?, ?, ?, ?, ?, ?)");

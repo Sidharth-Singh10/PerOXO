@@ -1,16 +1,17 @@
+use lapin::Connection;
+use lapin::ConnectionProperties;
 use queries::{DirectMessage, fetch_user_conversations, write_direct_message};
 use scylla::client::session_builder::SessionBuilder;
 use scylla::client::{execution_profile::ExecutionProfile, session::Session};
 use scylla::statement::Consistency;
 use scylla::value::CqlTimestamp;
 use std::error::Error;
-
+use std::sync::Arc;
 use tonic::{Request, Response, Status, transport::Server};
 use uuid::Uuid;
-
 mod queries;
+mod rabbit;
 
-// Include the generated proto code
 pub mod chat_service {
     tonic::include_proto!("chat_service");
 }
@@ -19,20 +20,23 @@ use crate::chat_service::ConversationMessage;
 use crate::chat_service::FetchConversationHistoryRequest;
 use crate::chat_service::FetchConversationHistoryResponse;
 use crate::queries::fetch_conversation_history;
+use crate::rabbit::MessageConsumer;
+use crate::rabbit::MessagePublisher;
+use crate::rabbit::SerializableDirectMessage;
 use chat_service::{
     FetchUserConversationsRequest, FetchUserConversationsResponse, UserConversation,
     WriteDmRequest, WriteDmResponse,
     chat_service_server::{ChatService, ChatServiceServer},
 };
 
-// gRPC service implementation
 pub struct ChatServiceImpl {
     session: Session,
+    publisher: Arc<MessagePublisher>,
 }
 
 impl ChatServiceImpl {
-    pub fn new(session: Session) -> Self {
-        Self { session }
+    pub fn new(session: Session, publisher: Arc<MessagePublisher>) -> Self {
+        Self { session, publisher }
     }
 }
 
@@ -46,9 +50,9 @@ impl ChatService for ChatServiceImpl {
 
         // Create the DirectMessage using your existing function
         let dm = create_dm(req.sender_id, req.receiver_id, req.message);
+        let serializable_dm: SerializableDirectMessage = dm.into();
 
-        // Write to database using your existing function
-        match write_direct_message(&self.session, dm).await {
+        match self.publisher.publish_message(&serializable_dm).await {
             Ok(()) => {
                 let response = WriteDmResponse {
                     success: true,
@@ -59,7 +63,7 @@ impl ChatService for ChatServiceImpl {
             Err(e) => {
                 let response = WriteDmResponse {
                     success: false,
-                    error_message: e.to_string(),
+                    error_message: format!("Failed to queue message: {}", e),
                 };
                 Ok(Response::new(response))
             }
@@ -72,7 +76,7 @@ impl ChatService for ChatServiceImpl {
     ) -> Result<Response<FetchUserConversationsResponse>, Status> {
         let req = request.into_inner();
 
-        // Fetch conversations using your existing function
+        
         match fetch_user_conversations(&self.session, req.user_id).await {
             Ok(conversations_data) => {
                 // Convert Vec<(String, CqlTimestamp)> to Vec<UserConversation>
@@ -101,6 +105,7 @@ impl ChatService for ChatServiceImpl {
             }
         }
     }
+
     async fn fetch_conversation_history(
         &self,
         request: Request<FetchConversationHistoryRequest>,
@@ -144,23 +149,46 @@ impl ChatService for ChatServiceImpl {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // Initialize Scylla session
-
+    //  Scylla session
     let profile = ExecutionProfile::builder()
         .consistency(Consistency::One)
         .build();
 
     let session: Session = SessionBuilder::new()
-        .known_node("172.17.0.2:9042")
+        .known_node("127.0.0.1:9042")
         .default_execution_profile_handle(profile.into_handle())
         .build()
         .await?;
 
+    let session_arc = Arc::new(session);
+    ///////////////////////////
+
+    // RabbitMQ connections
+    let rabbitmq_url = "amqp://localhost:5672";
+    let connection = Connection::connect(rabbitmq_url, ConnectionProperties::default()).await?;
+
+    let queue_name = "direct_messages".to_string();
+
+    let publisher = Arc::new(MessagePublisher::new(&connection, queue_name.clone()).await?);
+
+    let consumer = MessageConsumer::new(&connection, queue_name, Arc::clone(&session_arc)).await?;
+
+    // Start consuming in a separate task
+    let _consumer_handle = tokio::spawn(async move {
+        if let Err(e) = consumer.start_consuming().await {
+            eprintln!("Consumer error: {}", e);
+        }
+    });
+
+    //////////////////////////////////////
+
     // Create the gRPC service
-    let chat_service = ChatServiceImpl::new(session);
+    let chat_service = ChatServiceImpl::new(
+        Arc::try_unwrap(session_arc).unwrap(), // fix: handle Arc properly
+        publisher,
+    );
     let service = ChatServiceServer::new(chat_service);
 
-    // gRPC server address
     let addr = "[::1]:50051".parse()?;
 
     println!("ChatService gRPC server listening on {}", addr);
@@ -179,10 +207,8 @@ pub fn create_dm(sender_id: i32, recipient_id: i32, message_text: String) -> Dir
         (recipient_id, sender_id)
     };
 
-    // Create conversation_id in format "smaller_id_larger_id"
     let conversation_id = format!("{}_{}", first_id, second_id);
 
-    // Generate a new UUID for the message
     let message_id = Uuid::new_v4();
 
     // Think about possibility of managing timestamps in a more efficient way
