@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::queries::{write_direct_message, DirectMessage};
+use crate::queries::{DirectMessage, write_direct_message};
 use lapin::{
     BasicProperties, Channel, Connection,
     options::{
@@ -12,6 +10,7 @@ use lapin::{
 };
 use scylla::value::CqlTimestamp;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct MessagePublisher {
@@ -179,7 +178,7 @@ impl From<DirectMessage> for SerializableDirectMessage {
     fn from(dm: DirectMessage) -> Self {
         Self {
             conversation_id: dm.conversation_id,
-            message_id: dm.message_id, 
+            message_id: dm.message_id,
             sender_id: dm.sender_id,
             recipient_id: dm.recipient_id,
             message_text: dm.message_text,
@@ -192,7 +191,7 @@ impl From<SerializableDirectMessage> for DirectMessage {
     fn from(sdm: SerializableDirectMessage) -> Self {
         Self {
             conversation_id: sdm.conversation_id,
-            message_id: sdm.message_id, 
+            message_id: sdm.message_id,
             sender_id: sdm.sender_id,
             recipient_id: sdm.recipient_id,
             message_text: sdm.message_text,
