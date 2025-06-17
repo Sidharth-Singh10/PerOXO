@@ -1,0 +1,87 @@
+services:
+  scylladb:
+    image: scylladb/scylla:latest
+    container_name: scylla
+    ports:
+      - "9042:9042"
+      - "9160:9160"
+      - "7000:7000"
+      - "7001:7001"
+    volumes:
+      - scylla_data:/var/lib/scylla
+    environment:
+      - SCYLLA_CLUSTER_NAME=chat_cluster
+      - SCYLLA_DC=datacenter1
+      - SCYLLA_RACK=rack1
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - chat_network
+
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=password
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - chat_network
+
+  chat-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chat-service
+    ports:
+      - "50051:50051"
+    depends_on:
+      scylladb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RUST_LOG=info
+      - SCYLLA_HOST=scylladb:9042
+      - RABBITMQ_URL=amqp://admin:password@rabbitmq:5672
+    networks:
+      - chat_network
+    restart: unless-stopped
+
+  rabbit-consumer:
+    build:
+      context: ../rabbit_consumer
+      dockerfile: Dockerfile
+    container_name: rabbit-consumer
+    environment:
+      - RUST_LOG=info
+      - SCYLLA_HOST=scylladb:9042
+      - RABBITMQ_URL=amqp://admin:password@rabbitmq:5672
+    networks:
+      - chat_network
+    restart: unless-stopped
+  
+
+volumes:
+  scylla_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+
+networks:
+  chat_network:
+    driver: bridge
