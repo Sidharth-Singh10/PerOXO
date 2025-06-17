@@ -14,12 +14,12 @@ use crate::{
 };
 
 pub struct ChatServiceImpl {
-    session: Session,
+    session: Arc<Session>,
     publisher: Arc<MessagePublisher>,
 }
 
 impl ChatServiceImpl {
-    pub fn new(session: Session, publisher: Arc<MessagePublisher>) -> Self {
+    pub fn new(session: Arc<Session>, publisher: Arc<MessagePublisher>) -> Self {
         Self { session, publisher }
     }
 }

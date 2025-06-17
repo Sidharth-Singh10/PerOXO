@@ -1,16 +1,12 @@
-use crate::queries::{DirectMessage, write_direct_message};
+use crate::queries::DirectMessage;
 use lapin::{
     BasicProperties, Channel, Connection,
-    options::{
-        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicPublishOptions,
-        BasicQosOptions, QueueDeclareOptions,
-    },
+    options::{BasicPublishOptions, ConfirmSelectOptions, QueueDeclareOptions},
     publisher_confirm::Confirmation,
     types::FieldTable,
 };
 use scylla::value::CqlTimestamp;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct MessagePublisher {
@@ -21,6 +17,11 @@ pub struct MessagePublisher {
 impl MessagePublisher {
     pub async fn new(connection: &Connection, queue_name: String) -> lapin::Result<Self> {
         let channel = connection.create_channel().await?;
+
+        // Enable publisher confirmations
+        channel
+            .confirm_select(ConfirmSelectOptions::default())
+            .await?;
 
         // Declare the queue
         channel
@@ -64,101 +65,23 @@ impl MessagePublisher {
             Confirmation::NotRequested => Err("Publisher confirmation was not requested".into()),
         }
     }
-}
-pub struct MessageConsumer {
-    channel: Channel,
-    queue_name: String,
-    session: Arc<scylla::client::session::Session>,
-}
 
-impl MessageConsumer {
-    pub async fn new(
-        connection: &Connection,
-        queue_name: String,
-        session: Arc<scylla::client::session::Session>,
-    ) -> lapin::Result<Self> {
-        let channel = connection.create_channel().await?;
+    #[allow(dead_code)]
+    pub async fn publish_message_no_confirm(
+        &self,
+        message: &SerializableDirectMessage,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let payload = serde_json::to_vec(message)?;
 
-        channel
-            .queue_declare(
-                &queue_name,
-                QueueDeclareOptions {
-                    durable: true,
-                    ..Default::default()
-                },
-                FieldTable::default(),
-            )
-            .await?;
-
-        // Set QoS to process one message at a time
-        // Research more about this......
-        channel.basic_qos(1, BasicQosOptions::default()).await?;
-
-        Ok(Self {
-            channel,
-            queue_name,
-            session,
-        })
-    }
-
-    pub async fn start_consuming(&self) -> lapin::Result<()> {
-        let consumer = self
-            .channel
-            .basic_consume(
+        self.channel
+            .basic_publish(
+                "",
                 &self.queue_name,
-                "dm_consumer",
-                BasicConsumeOptions::default(),
-                FieldTable::default(),
+                BasicPublishOptions::default(),
+                &payload,
+                BasicProperties::default().with_delivery_mode(2), // Make message persistent
             )
             .await?;
-
-        println!("Started consuming messages from queue: {}", self.queue_name);
-
-        let session = Arc::clone(&self.session);
-
-        consumer.set_delegate(
-            move |delivery: lapin::Result<Option<lapin::message::Delivery>>| {
-                let session = Arc::clone(&session);
-                async move {
-                    if let Ok(Some(delivery)) = delivery {
-                        match serde_json::from_slice::<SerializableDirectMessage>(&delivery.data) {
-                            Ok(serializable_dm) => {
-                                let dm: DirectMessage = serializable_dm.into();
-
-                                match write_direct_message(&session, dm).await {
-                                    Ok(()) => {
-                                        println!("Successfully wrote message to database");
-                                        delivery.ack(BasicAckOptions::default()).await.unwrap();
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to write message to database: {}", e);
-                                        // Reject and requeue the message
-                                        delivery
-                                            .nack(BasicNackOptions {
-                                                requeue: true,
-                                                ..Default::default()
-                                            })
-                                            .await
-                                            .unwrap();
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to deserialize message: {}", e);
-                                // Reject without requeue for malformed messages
-                                delivery
-                                    .nack(BasicNackOptions {
-                                        requeue: false,
-                                        ..Default::default()
-                                    })
-                                    .await
-                                    .unwrap();
-                            }
-                        }
-                    }
-                }
-            },
-        );
 
         Ok(())
     }
