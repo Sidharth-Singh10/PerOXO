@@ -1,4 +1,4 @@
-use scylla::{ client::session::Session, value::CqlTimestamp};
+use scylla::{client::session::Session, value::CqlTimestamp};
 use uuid::Uuid;
 
 pub struct DirectMessage {
