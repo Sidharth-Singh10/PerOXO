@@ -30,13 +30,10 @@ impl DatabaseMigrations {
     pub async fn run_migrations(&self) -> Result<(), Box<dyn Error>> {
         println!("Starting database migrations...");
 
-        // Step 1: Create keyspace
         self.create_keyspace().await?;
 
-        // Step 2: Use keyspace
         self.use_keyspace().await?;
 
-        // Step 3: Create tables
         self.create_tables().await?;
 
         println!("Database migrations completed successfully!");
@@ -70,10 +67,7 @@ impl DatabaseMigrations {
     }
 
     async fn create_tables(&self) -> Result<(), Box<dyn Error>> {
-        // Create direct_messages table
         self.create_direct_messages_table().await?;
-
-        // Create user_conversations table
         self.create_user_conversations_table().await?;
 
         Ok(())
@@ -102,7 +96,7 @@ impl DatabaseMigrations {
     async fn create_user_conversations_table(&self) -> Result<(), Box<dyn Error>> {
         let query = r#"
             CREATE TABLE IF NOT EXISTS user_conversations (
-                user_id uuid,
+                user_id int,
                 conversation_id text,
                 last_message timestamp,
                 PRIMARY KEY (user_id, conversation_id)
@@ -121,7 +115,6 @@ impl DatabaseMigrations {
     }
 }
 
-// Helper function to run migrations from main or other modules
 pub async fn run_database_migrations(node: &str) -> Result<Arc<Session>, Box<dyn Error>> {
     let migrations = DatabaseMigrations::new(node).await?;
     migrations.run_migrations().await?;
@@ -135,7 +128,6 @@ mod tests {
     #[tokio::test]
     async fn test_migrations() {
         // Note: This test requires a running Scylla instance
-        // Uncomment and modify as needed for your testing environment
 
         let result = run_database_migrations("127.0.0.1:9042").await;
         assert!(result.is_ok());

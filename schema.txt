@@ -15,7 +15,7 @@ CREATE TABLE direct_messages (
 ) WITH CLUSTERING ORDER BY (message_id ASC);
 
 CREATE TABLE user_conversations (
-  user_id uuid,
+  user_id int,
   conversation_id text,
   last_message timestamp,
   PRIMARY KEY (user_id, conversation_id)
