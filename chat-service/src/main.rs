@@ -9,6 +9,7 @@ use std::env;
 use std::error::Error;
 use std::sync::Arc;
 use tonic::transport::Server;
+use tonic_health::server::health_reporter;
 mod chat_services;
 mod queries;
 mod rabbit;
@@ -24,7 +25,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let scylla_host = env::var("SCYLLA_HOST").unwrap_or_else(|_| "127.0.0.1:9042".to_string());
     let rabbitmq_url =
         env::var("RABBITMQ_URL").unwrap_or_else(|_| "amqp://localhost:5672".to_string());
-    let grpc_addr = env::var("GRPC_ADDR").unwrap_or_else(|_| "[::]:50051".to_string());
+
+    let grpc_addr = env::var("GRPC_ADDR")?;
 
     println!("Starting chat service...");
     println!("ScyllaDB host: {}", scylla_host);
@@ -60,10 +62,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let service = ChatServiceServer::new(chat_service);
     let addr = grpc_addr.parse()?;
 
+    let (health_reporter, health_service) = health_reporter();
+    health_reporter
+        .set_serving::<ChatServiceServer<ChatServiceImpl>>()
+        .await;
+
     println!("ChatService gRPC server listening on {}", addr);
 
     // Start the gRPC server
-    Server::builder().add_service(service).serve(addr).await?;
+    Server::builder()
+        .add_service(health_service)
+        .add_service(service)
+        .serve(addr)
+        .await?;
 
     Ok(())
 }

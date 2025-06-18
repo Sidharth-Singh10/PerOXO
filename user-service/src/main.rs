@@ -1,11 +1,10 @@
 use crate::user_service::GetMatchedUsersRequest;
 use crate::user_service::GetMatchedUsersResponse;
-use dotenv::dotenv;
 use sqlx::{FromRow, PgPool};
 use tonic::{Request, Response, Status, transport::Server};
+use tonic_health::server::health_reporter;
 use user_service::user_service_server::UserService;
 use user_service::user_service_server::UserServiceServer;
-// Import the generated proto module
 mod user_service {
     tonic::include_proto!("user_service");
 }
@@ -52,17 +51,21 @@ impl UserService for AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenv().ok();
-
-    let addr = "[::1]:50051".parse()?;
+    let grpc_addr = std::env::var("GRPC_ADDR")?.parse()?;
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db = PgPool::connect(&db_url).await?;
 
-    println!("MatcherService gRPC server running on {}", addr);
+    let (health_reporter, health_service) = health_reporter();
+    health_reporter
+        .set_serving::<UserServiceServer<AppState>>()
+        .await;
+
+    println!("MatcherService gRPC server running on {}", grpc_addr);
 
     Server::builder()
+        .add_service(health_service)
         .add_service(UserServiceServer::new(AppState { db }))
-        .serve(addr)
+        .serve(grpc_addr)
         .await?;
 
     Ok(())

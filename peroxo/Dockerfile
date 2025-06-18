@@ -21,16 +21,10 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    wget \
     && rm -rf /var/lib/apt/lists/*
-
-RUN wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.24/grpc_health_probe-linux-amd64 && \
-    chmod +x /bin/grpc_health_probe
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/chat-service /app/chat-service
+COPY --from=builder /app/target/release/per_oxo /app/per_oxo
 
-EXPOSE 50051
-
-CMD ["./chat-service"]
+CMD ["./per_oxo"]

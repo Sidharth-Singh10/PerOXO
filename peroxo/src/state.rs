@@ -9,6 +9,9 @@ use user_service::GetMatchedUsersRequest;
 pub mod user_service {
     tonic::include_proto!("user_service");
 }
+pub mod chat_service {
+    tonic::include_proto!("chat_service");
+}
 
 pub struct AppState {
     // Map of username to their broadcast channel
