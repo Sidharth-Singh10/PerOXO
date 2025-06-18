@@ -44,11 +44,11 @@ services:
 
   chat-service:
     build:
-      context: .
+      context: ./chat-service
       dockerfile: Dockerfile
     container_name: chat-service
     ports:
-      - "50051:50051"
+      - "50052:50052"
     depends_on:
       scylladb:
         condition: service_healthy
@@ -58,13 +58,53 @@ services:
       - RUST_LOG=info
       - SCYLLA_HOST=scylladb:9042
       - RABBITMQ_URL=amqp://admin:password@rabbitmq:5672
+      - GRPC_ADDR=[::]:50052
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50052"]
+    networks:
+      - chat_network
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: user-service
+    ports:
+      - "50053:50053"
+    environment:
+      - RUST_LOG=info
+      - GRPC_ADDR=[::]:50053
+      - DATABASE_URL=XXXXXXXXX
+    networks:
+      - chat_network
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50053"]
+
+  per-oxo:
+    build:
+      context: ./peroxo
+      dockerfile: Dockerfile
+    container_name: per-oxo
+    ports:
+      - "50051:50051"
+    environment:
+      - RUST_LOG=info
+      - GRPC_ADDR=[::]:50051
+      - USER_SERVICE_ADDR=http://user-service:50053
+      - CHAT_SERVICE_ADDR=http://chat-service:50052
+      - PER_OXO_SERVICE_ADDR=127.0.0.1:3000
+    depends_on:
+      chat-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
     networks:
       - chat_network
     restart: unless-stopped
 
   rabbit-consumer:
     build:
-      context: ../rabbit_consumer
+      context: ./rabbit_consumer
       dockerfile: Dockerfile
     container_name: rabbit-consumer
     environment:
@@ -73,8 +113,6 @@ services:
       - RABBITMQ_URL=amqp://admin:password@rabbitmq:5672
     networks:
       - chat_network
-    restart: unless-stopped
-  
 
 volumes:
   scylla_data:

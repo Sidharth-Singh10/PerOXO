@@ -1,4 +1,7 @@
-use crate::state::user_service::user_service_client::UserServiceClient;
+use crate::state::{
+    chat_service::chat_service_client::ChatServiceClient,
+    user_service::user_service_client::UserServiceClient,
+};
 use axum::{
     Router,
     extract::{State, ws::WebSocketUpgrade},
@@ -42,7 +45,19 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let user_service_client = UserServiceClient::connect("http://[::1]:50051")
+    let user_service_addr = std::env::var("USER_SERVICE_ADDR").unwrap();
+
+    tracing::info!("Connecting to user service at {}", user_service_addr);
+
+    let user_service_client = UserServiceClient::connect(user_service_addr)
+        .await
+        .expect("Failed to connect to gRPC matcher service");
+
+    let chat_service_addr = std::env::var("CHAT_SERVICE_ADDR").unwrap();
+
+    tracing::info!("Connecting to chat service at {}", chat_service_addr);
+
+    let _chat_service_client = ChatServiceClient::connect(chat_service_addr)
         .await
         .expect("Failed to connect to gRPC matcher service");
 
@@ -70,9 +85,12 @@ async fn main() {
         .layer(cors)
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+    let per_oxo_service_addr = std::env::var("PER_OXO_SERVICE_ADDR").unwrap();
+
+    let listener = tokio::net::TcpListener::bind(per_oxo_service_addr)
         .await
         .unwrap();
+    
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
