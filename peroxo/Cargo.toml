@@ -15,7 +15,7 @@ futures = "0.3.31"
 tower-http = { version = "0.6.1", features = ["cors"] }
 prost = "0.13.5"
 tonic = { version = "0.13.0", features = ["transport"] }
-
+dotenv = "0.15.0"
 
 [build-dependencies]
 tonic-build = "0.13.0"
