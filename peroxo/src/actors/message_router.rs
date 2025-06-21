@@ -1,4 +1,7 @@
-use crate::chat::{ChatMessage, PresenceStatus};
+use crate::{
+    actors::persistance_actor::PersistenceMessage,
+    chat::{ChatMessage, PresenceStatus},
+};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
@@ -27,16 +30,20 @@ pub struct MessageRouter {
     receiver: mpsc::UnboundedReceiver<RouterMessage>,
     users: HashMap<i32, mpsc::Sender<ChatMessage>>,
     online_users: Vec<i32>,
+    persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
 }
 
 impl MessageRouter {
-    pub fn new() -> (Self, mpsc::UnboundedSender<RouterMessage>) {
+    pub fn new(
+        persistence_sender: mpsc::UnboundedSender<PersistenceMessage>,
+    ) -> (Self, mpsc::UnboundedSender<RouterMessage>) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         let router = Self {
             receiver,
             users: HashMap::new(),
             online_users: Vec::new(),
+            persistence_sender: Some(persistence_sender),
         };
 
         (router, sender)
@@ -52,8 +59,7 @@ impl MessageRouter {
                     sender,
                     respond_to,
                 } => {
-                    self.handle_register_user(user_id, sender, respond_to)
-                        .await;
+                    self.handle_register_user(user_id, sender, respond_to).await;
                 }
                 RouterMessage::UnregisterUser { user_id } => {
                     self.handle_unregister_user(user_id).await;
@@ -102,6 +108,18 @@ impl MessageRouter {
     }
 
     async fn handle_direct_message(&self, from: i32, to: i32, content: String) {
+        if let Some(persistence_sender) = &self.persistence_sender {
+            let persist_msg = PersistenceMessage::PersistDirectMessage {
+                sender_id: from.clone(),
+                receiver_id: to.clone(),
+                message_content: content.clone(),
+                respond_to: None, // Fire-and-forget for now
+            };
+
+            if let Err(e) = persistence_sender.send(persist_msg) {
+                tracing::error!("Failed to send message to persistence actor: {}", e);
+            }
+        }
         if let Some(recipient_sender) = self.users.get(&to) {
             let to_clone = to.clone();
             let message = ChatMessage::DirectMessage { from, to, content };
