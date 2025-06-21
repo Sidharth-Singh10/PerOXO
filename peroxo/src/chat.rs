@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 pub enum ChatMessage {
     // Direct message to a specific user
     DirectMessage {
-        from: String,
-        to: String,
+        from: i32,
+        to: i32,
         content: String,
     },
     // Presence update (user online/offline)
     Presence {
-        user: String,
+        user: i32,
         status: PresenceStatus,
     },
 }

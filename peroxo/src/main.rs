@@ -20,14 +20,15 @@ mod state;
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<HashMap<String, i32>>,
 ) -> impl IntoResponse {
     // Need proper authentication here
-    let token = params.get("token").cloned().unwrap_or_default();
-
-    if token.is_empty() {
-        return "Missing token".into_response();
-    }
+    let token = match params.get("token") {
+        Some(token) => token.clone(),
+        None => {
+            return "Missing token".into_response();
+        }
+    };
 
     ws.on_upgrade(move |socket| dm_socket(socket, token, state))
 }

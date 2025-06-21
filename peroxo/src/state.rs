@@ -34,14 +34,14 @@ pub async fn get_online_users(State(state): State<Arc<AppState>>) -> impl IntoRe
 
     if state.router_sender.send(msg).is_err() {
         error!("Failed to communicate with message router");
-        return Json(Vec::<String>::new());
+        return Json(Vec::<i32>::new());
     }
 
     match response.await {
         Ok(users) => Json(users),
         Err(_) => {
             error!("Failed to get response from message router");
-            Json(Vec::<String>::new())
+            Json(Vec::<i32>::new())
         }
     }
 }

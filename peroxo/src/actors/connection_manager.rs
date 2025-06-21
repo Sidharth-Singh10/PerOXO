@@ -12,16 +12,16 @@ impl ConnectionManager {
         Self { router_sender }
     }
 
-    pub async fn handle_connection(&self, socket: WebSocket, username: String) {
-        info!("New connection attempt for user: {}", username);
+    pub async fn handle_connection(&self, socket: WebSocket, user_id: i32) {
+        info!("New connection attempt for user: {}", user_id);
 
-        match UserSession::new(username.clone(), socket, self.router_sender.clone()).await {
+        match UserSession::new(user_id.clone(), socket, self.router_sender.clone()).await {
             Ok(session) => {
-                info!("User session created for: {}", username);
+                info!("User session created for: {}", user_id);
                 session.run().await;
             }
             Err(e) => {
-                error!("Failed to create session for {}: {}", username, e);
+                error!("Failed to create session for {}: {}", user_id, e);
             }
         }
     }
