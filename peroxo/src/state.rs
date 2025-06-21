@@ -1,10 +1,13 @@
 use crate::actors::{
+    chat_service::chat_service_client::ChatServiceClient,
     connection_manager::ConnectionManager,
     message_router::{MessageRouter, RouterMessage},
+    persistance_actor::PersistenceActor,
 };
 use axum::{Json, extract::State, response::IntoResponse};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
+use tonic::transport::Channel;
 use tracing::error;
 
 pub struct AppState {
@@ -13,17 +16,22 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        let (router, router_sender) = MessageRouter::new();
+    pub async fn new(
+        chat_service_client: ChatServiceClient<Channel>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let (persistence_actor, persistence_sender) =
+            PersistenceActor::new(chat_service_client).await?;
+        let (router, router_sender) = MessageRouter::new(persistence_sender);
         let connection_manager = Arc::new(ConnectionManager::new(router_sender.clone()));
 
-        // Spawn the message router
+        // Spawn actors
         tokio::spawn(router.run());
+        tokio::spawn(persistence_actor.run());
 
-        Self {
+        Ok(Self {
             connection_manager,
             router_sender,
-        }
+        })
     }
 }
 
