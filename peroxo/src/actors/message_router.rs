@@ -6,27 +6,27 @@ use tracing::{debug, info};
 #[derive(Debug)]
 pub enum RouterMessage {
     RegisterUser {
-        username: String,
+        user_id: i32,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     },
     UnregisterUser {
-        username: String,
+        user_id: i32,
     },
     SendDirectMessage {
-        from: String,
-        to: String,
+        from: i32,
+        to: i32,
         content: String,
     },
     GetOnlineUsers {
-        respond_to: oneshot::Sender<Vec<String>>,
+        respond_to: oneshot::Sender<Vec<i32>>,
     },
 }
 
 pub struct MessageRouter {
     receiver: mpsc::UnboundedReceiver<RouterMessage>,
-    users: HashMap<String, mpsc::Sender<ChatMessage>>,
-    online_users: Vec<String>,
+    users: HashMap<i32, mpsc::Sender<ChatMessage>>,
+    online_users: Vec<i32>,
 }
 
 impl MessageRouter {
@@ -48,15 +48,15 @@ impl MessageRouter {
         while let Some(message) = self.receiver.recv().await {
             match message {
                 RouterMessage::RegisterUser {
-                    username,
+                    user_id,
                     sender,
                     respond_to,
                 } => {
-                    self.handle_register_user(username, sender, respond_to)
+                    self.handle_register_user(user_id, sender, respond_to)
                         .await;
                 }
-                RouterMessage::UnregisterUser { username } => {
-                    self.handle_unregister_user(username).await;
+                RouterMessage::UnregisterUser { user_id } => {
+                    self.handle_unregister_user(user_id).await;
                 }
                 RouterMessage::SendDirectMessage { from, to, content } => {
                     self.handle_direct_message(from, to, content).await;
@@ -72,36 +72,36 @@ impl MessageRouter {
 
     async fn handle_register_user(
         &mut self,
-        username: String,
+        user_id: i32,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     ) {
-        if self.users.contains_key(&username) {
+        if self.users.contains_key(&user_id) {
             let _ = respond_to.send(Err("User already online".to_string()));
             return;
         }
 
-        self.users.insert(username.clone(), sender);
-        self.online_users.push(username.clone());
+        self.users.insert(user_id.clone(), sender);
+        self.online_users.push(user_id.clone());
 
         // Broadcast presence update to all users
-        self.broadcast_presence_update(username, PresenceStatus::Online)
+        self.broadcast_presence_update(user_id, PresenceStatus::Online)
             .await;
 
         let _ = respond_to.send(Ok(()));
     }
 
-    async fn handle_unregister_user(&mut self, username: String) {
-        if self.users.remove(&username).is_some() {
-            self.online_users.retain(|u| u != &username);
+    async fn handle_unregister_user(&mut self, user_id: i32) {
+        if self.users.remove(&user_id).is_some() {
+            self.online_users.retain(|u| u != &user_id);
 
             // Broadcast presence update to all users
-            self.broadcast_presence_update(username, PresenceStatus::Offline)
+            self.broadcast_presence_update(user_id, PresenceStatus::Offline)
                 .await;
         }
     }
 
-    async fn handle_direct_message(&self, from: String, to: String, content: String) {
+    async fn handle_direct_message(&self, from: i32, to: i32, content: String) {
         if let Some(recipient_sender) = self.users.get(&to) {
             let to_clone = to.clone();
             let message = ChatMessage::DirectMessage { from, to, content };
@@ -126,9 +126,9 @@ impl MessageRouter {
         }
     }
 
-    async fn broadcast_presence_update(&self, username: String, status: PresenceStatus) {
+    async fn broadcast_presence_update(&self, user_id: i32, status: PresenceStatus) {
         let message = ChatMessage::Presence {
-            user: username,
+            user: user_id,
             status,
         };
 

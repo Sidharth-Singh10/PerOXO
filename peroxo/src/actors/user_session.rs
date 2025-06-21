@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, warn};
 
 pub struct UserSession {
-    username: String,
+    user_id: i32,
     socket: WebSocket,
     router_sender: mpsc::UnboundedSender<RouterMessage>,
     session_receiver: mpsc::Receiver<ChatMessage>,
@@ -14,7 +14,7 @@ pub struct UserSession {
 
 impl UserSession {
     pub async fn new(
-        username: String,
+        user_id: i32,
         socket: WebSocket,
         router_sender: mpsc::UnboundedSender<RouterMessage>,
     ) -> Result<Self, String> {
@@ -24,7 +24,7 @@ impl UserSession {
         // Register with the message router
         let (respond_to, response) = oneshot::channel();
         let register_msg = RouterMessage::RegisterUser {
-            username: username.clone(),
+            user_id: user_id.clone(),
             sender: session_sender,
             respond_to,
         };
@@ -35,7 +35,7 @@ impl UserSession {
 
         match response.await {
             Ok(Ok(())) => {
-                debug!("User {} registered successfully", username);
+                debug!("User {} registered successfully", user_id);
             }
             Ok(Err(e)) => {
                 return Err(e);
@@ -46,7 +46,7 @@ impl UserSession {
         }
 
         Ok(Self {
-            username,
+            user_id,
             socket,
             router_sender,
             session_receiver,
@@ -55,12 +55,12 @@ impl UserSession {
 
     pub async fn run(self) {
         let (mut ws_sender, mut ws_receiver) = self.socket.split();
-        let username = self.username.clone();
+        let user_id = self.user_id.clone();
         let router_sender = self.router_sender.clone();
         let mut session_receiver = self.session_receiver;
 
         // Task to handle outgoing messages (from session to WebSocket)
-        let username_clone = username.clone();
+        let user_id_clone = user_id.clone();
         let mut send_task = tokio::spawn(async move {
             while let Some(message) = session_receiver.recv().await {
                 match serde_json::to_string(&message) {
@@ -68,30 +68,30 @@ impl UserSession {
                         if ws_sender.send(Message::Text(json.into())).await.is_err() {
                             debug!(
                                 "WebSocket send failed for user {}, likely disconnected",
-                                username_clone
+                                user_id_clone
                             );
                             break;
                         }
                     }
                     Err(e) => {
-                        error!("Failed to serialize message for {}: {}", username_clone, e);
+                        error!("Failed to serialize message for {}: {}", user_id_clone, e);
                     }
                 }
             }
         });
 
         // Task to handle incoming messages (from WebSocket to router)
-        let username_clone = username.clone();
+        let user_id_clone = user_id.clone();
         let router_sender_clone = router_sender.clone();
         let mut recv_task = tokio::spawn(async move {
             while let Some(Ok(Message::Text(text))) = ws_receiver.next().await {
                 match serde_json::from_str::<ChatMessage>(&text) {
                     Ok(ChatMessage::DirectMessage { from, to, content }) => {
                         // Validate sender
-                        if from != username_clone {
+                        if from != user_id_clone {
                             warn!(
                                 "User {} attempted to spoof message from {}",
-                                username_clone, from
+                                user_id_clone, from
                             );
                             continue;
                         }
@@ -107,7 +107,7 @@ impl UserSession {
                         // Ignore other message types from clients for now
                     }
                     Err(e) => {
-                        warn!("Failed to parse message from {}: {}", username_clone, e);
+                        warn!("Failed to parse message from {}: {}", user_id_clone, e);
                     }
                 }
             }
@@ -116,21 +116,21 @@ impl UserSession {
         // Wait for either task to complete
         tokio::select! {
             _ = &mut send_task => {
-                debug!("Send task completed for user {}", username);
+                debug!("Send task completed for user {}", user_id);
                 recv_task.abort();
             }
             _ = &mut recv_task => {
-                debug!("Receive task completed for user {}", username);
+                debug!("Receive task completed for user {}", user_id);
                 send_task.abort();
             }
         }
 
         // Unregister from router
         let unregister_msg = RouterMessage::UnregisterUser {
-            username: username.clone(),
+            user_id: user_id.clone(),
         };
         let _ = router_sender.send(unregister_msg);
 
-        debug!("User session ended for {}", username);
+        debug!("User session ended for {}", user_id);
     }
 }
