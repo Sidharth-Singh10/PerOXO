@@ -302,7 +302,7 @@
     <div class="login-form" id="loginForm">
         <div class="login-card">
             <h2>Join Chat</h2>
-            <input type="text" id="usernameInput" placeholder="Enter your username" maxlength="50">
+            <input type="number" id="usernameInput" placeholder="Enter your user_id" maxlength="50">
             <input type="text" id="serverInput" placeholder="WebSocket Server URL" value="ws://localhost:3000">
             <button id="connectButton">Connect</button>
         </div>
@@ -312,7 +312,7 @@
         class ChatClient {
             constructor() {
                 this.ws = null;
-                this.username = '';
+                this.user_id = null;
                 this.serverUrl = '';
                 this.currentChatUser = null;
                 this.onlineUsers = [];
@@ -340,11 +340,11 @@
             }
 
             connect() {
-                const username = document.getElementById('usernameInput').value.trim();
+                const userIdInput = document.getElementById('usernameInput').value.trim();
                 const serverUrl = document.getElementById('serverInput').value.trim();
 
-                if (!username) {
-                    alert('Please enter a username');
+                if (!userIdInput) {
+                    alert('Please enter a user_id');
                     return;
                 }
 
@@ -353,11 +353,18 @@
                     return;
                 }
 
-                this.username = username;
+                // Convert user_id to integer
+                const user_id = parseInt(userIdInput, 10);
+                if (isNaN(user_id)) {
+                    alert('Please enter a valid numeric user_id');
+                    return;
+                }
+
+                this.user_id = user_id;
                 this.serverUrl = serverUrl;
 
                 // Create WebSocket connection with token parameter
-                const wsUrl = `${serverUrl}/ws?token=${encodeURIComponent(username)}`;
+                const wsUrl = `${serverUrl}/ws?token=${encodeURIComponent(user_id)}`;
                 
                 try {
                     this.ws = new WebSocket(wsUrl);
@@ -375,7 +382,7 @@
 
             onConnect() {
                 document.getElementById('loginForm').style.display = 'none';
-                this.updateStatus(`Connected as ${this.username}`, 'connected');
+                this.updateStatus(`Connected as ${this.user_id}`, 'connected');
                 
                 // Enable message input
                 document.getElementById('messageInput').disabled = false;
@@ -394,7 +401,7 @@
                         const { from, to, content } = message.DirectMessage;
                         
                         // Store message
-                        const chatUser = from === this.username ? to : from;
+                        const chatUser = from === this.user_id ? to : from;
                         if (!this.messages[chatUser]) {
                             this.messages[chatUser] = [];
                         }
@@ -427,7 +434,7 @@
                 
                 // Try to reconnect after 3 seconds
                 setTimeout(() => {
-                    if (this.username && this.serverUrl) {
+                    if (this.user_id && this.serverUrl) {
                         this.connect();
                     }
                 }, 3000);
@@ -448,8 +455,8 @@
 
                 const message = {
                     DirectMessage: {
-                        from: this.username,
-                        to: this.currentChatUser,
+                        from: this.user_id,  // Already an integer
+                        to: this.currentChatUser,  // Convert to integer
                         content: content
                     }
                 };
@@ -463,7 +470,7 @@
                     }
                     
                     this.messages[this.currentChatUser].push({
-                        from: this.username,
+                        from: this.user_id,
                         to: this.currentChatUser,
                         content: content,
                         timestamp: new Date()
@@ -483,7 +490,8 @@
                     
                     if (response.ok) {
                         const users = await response.json();
-                        this.onlineUsers = users.filter(user => user !== this.username);
+                        // Filter out current user and ensure all user IDs are integers
+                        this.onlineUsers = users.filter(user => user !== this.user_id).map(user => parseInt(user, 10));
                         this.renderOnlineUsers();
                     }
                 } catch (error) {
@@ -501,14 +509,14 @@
 
                 container.innerHTML = this.onlineUsers.map(user => `
                     <div class="user-item ${this.currentChatUser === user ? 'active' : ''}" data-user="${user}">
-                        ${user}
+                        User ${user}
                     </div>
                 `).join('');
 
                 // Add click listeners
                 container.querySelectorAll('.user-item').forEach(item => {
                     item.addEventListener('click', () => {
-                        const user = item.dataset.user;
+                        const user = parseInt(item.dataset.user, 10);  // Convert to integer
                         this.selectChatUser(user);
                     });
                 });
@@ -516,11 +524,11 @@
 
             selectChatUser(user) {
                 this.currentChatUser = user;
-                document.getElementById('chatHeader').textContent = `Chat with ${user}`;
+                document.getElementById('chatHeader').textContent = `Chat with User ${user}`;
                 
                 // Update active user in sidebar
                 document.querySelectorAll('.user-item').forEach(item => {
-                    item.classList.toggle('active', item.dataset.user === user);
+                    item.classList.toggle('active', parseInt(item.dataset.user, 10) === user);
                 });
 
                 this.renderMessages();
@@ -536,9 +544,9 @@
                 }
 
                 container.innerHTML = userMessages.map(msg => `
-                    <div class="message ${msg.from === this.username ? 'sent' : 'received'}">
+                    <div class="message ${msg.from === this.user_id ? 'sent' : 'received'}">
                         <div class="message-info">
-                            ${msg.from} • ${msg.timestamp.toLocaleTimeString()}
+                            User ${msg.from} • ${msg.timestamp.toLocaleTimeString()}
                         </div>
                         <div>${this.escapeHtml(msg.content)}</div>
                     </div>

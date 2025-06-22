@@ -27,4 +27,6 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/per_oxo /app/per_oxo
 
+EXPOSE 3000
+
 CMD ["./per_oxo"]
