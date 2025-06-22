@@ -107,7 +107,7 @@ impl UserSession {
                         // Ignore other message types from clients for now
                     }
                     Err(e) => {
-                        warn!("Failed to parse message from {}: {}", user_id_clone, e);
+                        error!("Failed to parse message from {}: {}", user_id_clone, e);
                     }
                 }
             }

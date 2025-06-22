@@ -74,7 +74,7 @@ services:
     environment:
       - RUST_LOG=info
       - GRPC_ADDR=[::]:50053
-      - DATABASE_URL=XXXXXXXXX
+      - DATABASE_URL=XXXXXXXXXXXXXXXXXXXXXX
     networks:
       - chat_network
     healthcheck:
@@ -87,12 +87,13 @@ services:
     container_name: per-oxo
     ports:
       - "50051:50051"
+      - "3000:3000"
     environment:
-      - RUST_LOG=info
+      - RUST_LOG=debug
       - GRPC_ADDR=[::]:50051
       - USER_SERVICE_ADDR=http://user-service:50053
       - CHAT_SERVICE_ADDR=http://chat-service:50052
-      - PER_OXO_SERVICE_ADDR=127.0.0.1:3000
+      - PER_OXO_SERVICE_ADDR=0.0.0.0:3000
     depends_on:
       chat-service:
         condition: service_healthy
@@ -111,6 +112,12 @@ services:
       - RUST_LOG=info
       - SCYLLA_HOST=scylladb:9042
       - RABBITMQ_URL=amqp://admin:password@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      scylladb:
+        condition: service_healthy
+    
     networks:
       - chat_network
 
