@@ -35,7 +35,7 @@ impl UserService for AppState {
                     ELSE male_id
                 END as other_user_id
             FROM matches
-            WHERE (male_id = $1 OR female_id = $1) AND status = 'matched';
+            WHERE (male_id = $1 OR female_id = $1) AND status = 'ACCEPTED';
             "#,
         )
         .bind(user_id)
@@ -51,6 +51,7 @@ impl UserService for AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv::dotenv().ok();
     let grpc_addr = std::env::var("GRPC_ADDR")?.parse()?;
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db = PgPool::connect(&db_url).await?;
