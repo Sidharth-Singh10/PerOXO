@@ -59,22 +59,55 @@ impl UserSession {
         let router_sender = self.router_sender.clone();
         let mut session_receiver = self.session_receiver;
 
+        let (ack_sender, mut ack_receiver) = mpsc::channel::<ChatMessage>(100);
         // Task to handle outgoing messages (from session to WebSocket)
         let user_id_clone = user_id.clone();
         let mut send_task = tokio::spawn(async move {
-            while let Some(message) = session_receiver.recv().await {
-                match serde_json::to_string(&message) {
-                    Ok(json) => {
-                        if ws_sender.send(Message::Text(json.into())).await.is_err() {
-                            debug!(
-                                "WebSocket send failed for user {}, likely disconnected",
-                                user_id_clone
-                            );
-                            break;
+            loop {
+                tokio::select! {
+                    // Handle regular messages from session_receiver
+                    message = session_receiver.recv() => {
+                        match message {
+                            Some(msg) => {
+                                match serde_json::to_string(&msg) {
+                                    Ok(json) => {
+                                        if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                                            debug!(
+                                                "WebSocket send failed for user {}, likely disconnected",
+                                                user_id_clone
+                                            );
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to serialize message for {}: {}", user_id_clone, e);
+                                    }
+                                }
+                            }
+                            None => break, // Channel closed
                         }
                     }
-                    Err(e) => {
-                        error!("Failed to serialize message for {}: {}", user_id_clone, e);
+                    // Handle acknowledgment messages
+                    ack_message = ack_receiver.recv() => {
+                        match ack_message {
+                            Some(msg) => {
+                                match serde_json::to_string(&msg) {
+                                    Ok(json) => {
+                                        if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                                            debug!(
+                                                "WebSocket send failed for user {}, likely disconnected",
+                                                user_id_clone
+                                            );
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to serialize ack message for {}: {}", user_id_clone, e);
+                                    }
+                                }
+                            }
+                            None => break, // Channel closed
+                        }
                     }
                 }
             }
@@ -83,10 +116,16 @@ impl UserSession {
         // Task to handle incoming messages (from WebSocket to router)
         let user_id_clone = user_id.clone();
         let router_sender_clone = router_sender.clone();
+
         let mut recv_task = tokio::spawn(async move {
             while let Some(Ok(Message::Text(text))) = ws_receiver.next().await {
                 match serde_json::from_str::<ChatMessage>(&text) {
-                    Ok(ChatMessage::DirectMessage { from, to, content }) => {
+                    Ok(ChatMessage::DirectMessage {
+                        from,
+                        to,
+                        content,
+                        message_id,
+                    }) => {
                         // Validate sender
                         if from != user_id_clone {
                             warn!(
@@ -96,12 +135,33 @@ impl UserSession {
                             continue;
                         }
 
-                        let router_msg = RouterMessage::SendDirectMessage { from, to, content };
+                        let (respond_to, response) = oneshot::channel();
+                        let router_msg = RouterMessage::SendDirectMessage {
+                            from,
+                            to,
+                            content,
+                            message_id,
+                            respond_to: Some(respond_to),
+                        };
 
                         if router_sender_clone.send(router_msg).is_err() {
                             error!("Failed to send message to router");
                             break;
                         }
+
+                        // Handle acknowledgment response
+                        let ack_sender_clone = ack_sender.clone();
+                        tokio::spawn(async move {
+                            if let Ok(ack_response) = response.await {
+                                let ack_message = ChatMessage::MessageAck {
+                                    message_id: ack_response.message_id,
+                                    timestamp: ack_response.timestamp,
+                                    status: ack_response.status,
+                                };
+
+                                let _ = ack_sender_clone.send(ack_message).await;
+                            }
+                        });
                     }
                     Ok(_) => {
                         // Ignore other message types from clients for now

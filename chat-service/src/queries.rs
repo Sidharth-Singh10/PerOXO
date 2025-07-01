@@ -1,5 +1,5 @@
 use scylla::{client::session::Session, value::CqlTimestamp};
-use uuid::Uuid;
+use uuid::{Uuid, timestamp};
 
 pub struct DirectMessage {
     pub conversation_id: String,
@@ -47,7 +47,13 @@ pub async fn fetch_conversation_history(
     Ok(messages)
 }
 
-pub fn create_dm(sender_id: i32, recipient_id: i32, message_text: String) -> DirectMessage {
+pub fn create_dm(
+    sender_id: i32,
+    recipient_id: i32,
+    message_text: String,
+    message_id: &str,
+    timestamp: i64,
+) -> Result<DirectMessage, Box<dyn std::error::Error>> {
     // Sort user IDs to ensure consistent conversation_id format
     let (first_id, second_id) = if sender_id < recipient_id {
         (sender_id, recipient_id)
@@ -57,18 +63,20 @@ pub fn create_dm(sender_id: i32, recipient_id: i32, message_text: String) -> Dir
 
     let conversation_id = format!("{}_{}", first_id, second_id);
 
-    let message_id = Uuid::new_v4();
+    let message_id = match Uuid::parse_str(message_id) {
+        Ok(uuid) => uuid,
+        Err(e) => return Err(Box::new(e)),
+    };
 
     // Think about possibility of managing timestamps in a more efficient way
-    let current_time_millis = chrono::Utc::now().timestamp_millis();
-    let created_at = CqlTimestamp(current_time_millis);
+    let created_at = CqlTimestamp(timestamp);
 
-    DirectMessage {
+    Ok(DirectMessage {
         conversation_id,
         message_id,
         sender_id,
         recipient_id,
         message_text,
         created_at,
-    }
+    })
 }

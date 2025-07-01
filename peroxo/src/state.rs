@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, oneshot};
 use tonic::transport::Channel;
 use tracing::error;
 
+use crate::user_service::GetMatchedUsersRequest;
 use crate::user_service::user_service_client::UserServiceClient;
-use crate::user_service::{GetMatchedUsersRequest, GetMatchedUsersResponse};
 
 pub struct AppState {
     pub connection_manager: Arc<ConnectionManager>,

@@ -33,7 +33,22 @@ impl ChatService for ChatServiceImpl {
         let req = request.into_inner();
 
         // Create the DirectMessage using your existing function
-        let dm = create_dm(req.sender_id, req.receiver_id, req.message);
+        let dm = match create_dm(
+            req.sender_id,
+            req.receiver_id,
+            req.message,
+            (req.message_id).as_str(),
+            req.timestamp,
+        ) {
+            Ok(dm) => dm,
+            Err(e) => {
+                let response = WriteDmResponse {
+                    success: false,
+                    error_message: format!("Failed to create message: {}", e),
+                };
+                return Ok(Response::new(response));
+            }
+        };
         let serializable_dm: SerializableDirectMessage = dm.into();
 
         match self.publisher.publish_message(&serializable_dm).await {
