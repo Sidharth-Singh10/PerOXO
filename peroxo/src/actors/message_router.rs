@@ -1,6 +1,6 @@
 use crate::{
     actors::persistance_actor::PersistenceMessage,
-    chat::{ChatMessage, PresenceStatus},
+    chat::{ChatMessage, MessageAckResponse, MessageStatus, PresenceStatus},
 };
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -20,6 +20,8 @@ pub enum RouterMessage {
         from: i32,
         to: i32,
         content: String,
+        message_id: uuid::Uuid,
+        respond_to: Option<oneshot::Sender<MessageAckResponse>>,
     },
     GetOnlineUsers {
         respond_to: oneshot::Sender<Vec<i32>>,
@@ -64,8 +66,15 @@ impl MessageRouter {
                 RouterMessage::UnregisterUser { user_id } => {
                     self.handle_unregister_user(user_id).await;
                 }
-                RouterMessage::SendDirectMessage { from, to, content } => {
-                    self.handle_direct_message(from, to, content).await;
+                RouterMessage::SendDirectMessage {
+                    from,
+                    to,
+                    content,
+                    message_id,
+                    respond_to,
+                } => {
+                    self.handle_direct_message(from, to, content, message_id, respond_to)
+                        .await;
                 }
                 RouterMessage::GetOnlineUsers { respond_to } => {
                     let _ = respond_to.send(self.online_users.clone());
@@ -90,6 +99,8 @@ impl MessageRouter {
         self.users.insert(user_id.clone(), sender);
         self.online_users.push(user_id.clone());
 
+        debug!("User {} registered successfully", user_id);
+
         // Broadcast presence update to all users
         self.broadcast_presence_update(user_id, PresenceStatus::Online)
             .await;
@@ -107,22 +118,76 @@ impl MessageRouter {
         }
     }
 
-    async fn handle_direct_message(&self, from: i32, to: i32, content: String) {
+    async fn handle_direct_message(
+        &self,
+        from: i32,
+        to: i32,
+        content: String,
+        message_id: uuid::Uuid,
+        respond_to: Option<oneshot::Sender<MessageAckResponse>>,
+    ) {
         if let Some(persistence_sender) = &self.persistence_sender {
+            let (persist_respond_to, persist_response) = oneshot::channel();
+
             let persist_msg = PersistenceMessage::PersistDirectMessage {
-                sender_id: from.clone(),
-                receiver_id: to.clone(),
+                sender_id: from,
+                receiver_id: to,
                 message_content: content.clone(),
-                respond_to: None, // Fire-and-forget for now
+                message_id,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                respond_to: persist_respond_to,
             };
 
             if let Err(e) = persistence_sender.send(persist_msg) {
                 tracing::error!("Failed to send message to persistence actor: {}", e);
+                if let Some(responder) = respond_to {
+                    let _ = responder.send(MessageAckResponse {
+                        message_id,
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        status: MessageStatus::Failed(format!("Persistence error: {}", e)),
+                    });
+                }
+                return;
+            }
+
+            // Handle persistence response in background -- look into this later
+            if let Some(responder) = respond_to {
+                tokio::spawn(async move {
+                    match persist_response.await {
+                        Ok(Ok(())) => {
+                            let _ = responder.send(MessageAckResponse {
+                                message_id,
+                                timestamp: chrono::Utc::now().timestamp_millis(),
+                                status: MessageStatus::Persisted,
+                            });
+                        }
+                        Ok(Err(e)) => {
+                            let _ = responder.send(MessageAckResponse {
+                                message_id,
+                                timestamp: chrono::Utc::now().timestamp_millis(),
+                                status: MessageStatus::Failed(e),
+                            });
+                        }
+                        Err(_) => {
+                            let _ = responder.send(MessageAckResponse {
+                                message_id,
+                                timestamp: chrono::Utc::now().timestamp_millis(),
+                                status: MessageStatus::Failed("Persistence timeout".to_string()),
+                            });
+                        }
+                    }
+                });
             }
         }
+
         if let Some(recipient_sender) = self.users.get(&to) {
             let to_clone = to.clone();
-            let message = ChatMessage::DirectMessage { from, to, content };
+            let message = ChatMessage::DirectMessage {
+                from,
+                to,
+                content,
+                message_id,
+            };
 
             // Use try_send to avoid blocking if the recipient's channel is full
             match recipient_sender.try_send(message) {

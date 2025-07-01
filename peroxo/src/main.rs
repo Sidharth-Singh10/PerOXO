@@ -10,7 +10,10 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::{actors::chat_service::chat_service_client::ChatServiceClient, socket::dm_socket, state::get_online_matched_users};
+use crate::{
+    actors::chat_service::chat_service_client::ChatServiceClient, socket::dm_socket,
+    state::get_online_matched_users,
+};
 
 mod actors;
 mod chat;

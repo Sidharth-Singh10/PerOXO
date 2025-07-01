@@ -17,7 +17,9 @@ pub enum PersistenceMessage {
         sender_id: i32,
         receiver_id: i32,
         message_content: String,
-        respond_to: Option<oneshot::Sender<Result<(), String>>>,
+        message_id: uuid::Uuid,
+        timestamp: i64,
+        respond_to: oneshot::Sender<Result<(), String>>,
     },
 }
 
@@ -49,16 +51,21 @@ impl PersistenceActor {
                     sender_id,
                     receiver_id,
                     message_content,
+                    message_id,
+                    timestamp,
                     respond_to,
                 } => {
                     let result = self
-                        .handle_persist_direct_message(sender_id, receiver_id, message_content)
+                        .handle_persist_direct_message(
+                            sender_id,
+                            receiver_id,
+                            message_content,
+                            message_id,
+                            timestamp,
+                        )
                         .await;
 
-                    // Send response back if requested
-                    if let Some(responder) = respond_to {
-                        let _ = responder.send(result);
-                    }
+                    let _ = respond_to.send(result);
                 }
             }
         }
@@ -71,10 +78,19 @@ impl PersistenceActor {
         sender_id: i32,
         receiver_id: i32,
         message_content: String,
+        message_id: uuid::Uuid,
+        timestamp: i64,
     ) -> Result<(), String> {
         // Make the gRPC call with retry logic
         match self
-            .write_dm_with_retry(sender_id, receiver_id, message_content, 3)
+            .write_dm_with_retry(
+                sender_id,
+                receiver_id,
+                message_content,
+                message_id,
+                timestamp,
+                3,
+            )
             .await
         {
             Ok(response) => {
@@ -105,6 +121,8 @@ impl PersistenceActor {
         sender_id: i32,
         receiver_id: i32,
         message_content: String,
+        message_id: uuid::Uuid,
+        timestamp: i64,
         max_retries: u32,
     ) -> Result<tonic::Response<WriteDmResponse>, tonic::Status> {
         let mut attempts = 0;
@@ -116,6 +134,8 @@ impl PersistenceActor {
                 sender_id,
                 receiver_id,
                 message: message_content.clone(),
+                message_id: message_id.to_string(),
+                timestamp,
             });
 
             match self.chat_service_client.write_dm(request).await {
