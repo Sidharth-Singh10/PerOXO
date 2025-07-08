@@ -13,6 +13,10 @@ service ChatService {
   // Fetch conversation history for a specific conversation
   rpc FetchConversationHistory(FetchConversationHistoryRequest)
       returns (FetchConversationHistoryResponse);
+
+  // Get paginated messages for a conversation
+  rpc GetPaginatedMessages(GetPaginatedMessagesRequest)
+      returns (GetPaginatedMessagesResponse);
 }
 
 message WriteDMRequest {
@@ -20,7 +24,7 @@ message WriteDMRequest {
   int32 receiver_id = 2;
   string message = 3;
   string message_id = 4;
-  int64 timestamp = 5; 
+  int64 timestamp = 5;
 }
 
 message WriteDMResponse {
@@ -59,8 +63,21 @@ message FetchConversationHistoryResponse {
 }
 
 message ConversationMessage {
-  string message_id = 1; // UUID as string
+  string message_id = 1;
   string message_text = 2;
   int32 sender_id = 3;
   int32 recipient_id = 4;
+}
+
+message GetPaginatedMessagesRequest {
+  string conversation_id = 1;
+  // optional
+  string cursor_message_id = 2;
+}
+
+message GetPaginatedMessagesResponse {
+  bool success = 1;
+  string error_message = 2;
+  repeated DirectMessage messages = 3;
+  string next_cursor = 4;
 }
