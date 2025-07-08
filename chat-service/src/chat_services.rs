@@ -3,15 +3,21 @@ use std::sync::Arc;
 use scylla::client::session::Session;
 use tonic::{Request, Response, Status};
 
+use crate::chat_service::DirectMessage;
+use crate::chat_service::GetPaginatedMessagesRequest;
+use crate::chat_service::GetPaginatedMessagesResponse;
 use crate::{
     chat_service::{
         ConversationMessage, FetchConversationHistoryRequest, FetchConversationHistoryResponse,
         FetchUserConversationsRequest, FetchUserConversationsResponse, UserConversation,
         WriteDmRequest, WriteDmResponse, chat_service_server::ChatService,
     },
-    queries::{create_dm, fetch_conversation_history, fetch_user_conversations},
+    queries::{
+        create_dm, fetch_conversation_history, fetch_paginated_messages, fetch_user_conversations,
+    },
     rabbit::{MessagePublisher, SerializableDirectMessage},
 };
+use uuid::Uuid;
 
 pub struct ChatServiceImpl {
     session: Arc<Session>,
@@ -138,6 +144,67 @@ impl ChatService for ChatServiceImpl {
                     success: false,
                     error_message: e.to_string(),
                     messages: Vec::new(),
+                };
+                Ok(Response::new(response))
+            }
+        }
+    }
+    async fn get_paginated_messages(
+        &self,
+        request: Request<GetPaginatedMessagesRequest>,
+    ) -> Result<Response<GetPaginatedMessagesResponse>, Status> {
+        let req = request.into_inner();
+
+        let cursor = if req.cursor_message_id.trim().is_empty() {
+            None
+        } else {
+            match Uuid::parse_str(&req.cursor_message_id) {
+                Ok(uuid) => Some(uuid),
+                Err(_) => {
+                    return Ok(Response::new(GetPaginatedMessagesResponse {
+                        success: false,
+                        error_message: "Invalid cursor_message_id".to_string(),
+                        messages: Vec::new(),
+                        next_cursor: String::new(),
+                    }));
+                }
+            }
+        };
+
+        match fetch_paginated_messages(&self.session, &req.conversation_id, cursor).await {
+            Ok(messages_data) => {
+                let next_cursor = messages_data
+                    .last()
+                    .map(|m| m.message_id.to_string())
+                    .unwrap_or_default();
+
+                let messages: Vec<DirectMessage> = messages_data
+                    .into_iter()
+                    .map(|m| DirectMessage {
+                        conversation_id: m.conversation_id,
+                        message_id: m.message_id.to_string(),
+                        sender_id: m.sender_id,
+                        recipient_id: m.recipient_id,
+                        message_text: m.message_text,
+                        created_at: m.created_at.0,
+                    })
+                    .collect();
+
+                let response = GetPaginatedMessagesResponse {
+                    success: true,
+                    error_message: String::new(),
+                    messages,
+                    next_cursor,
+                };
+
+                Ok(Response::new(response))
+            }
+            Err(e) => {
+                let response = GetPaginatedMessagesResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                    messages: Vec::new(),
+                    next_cursor: String::new(),
                 };
                 Ok(Response::new(response))
             }
