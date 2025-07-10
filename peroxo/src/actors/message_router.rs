@@ -96,8 +96,8 @@ impl MessageRouter {
             return;
         }
 
-        self.users.insert(user_id.clone(), sender);
-        self.online_users.push(user_id.clone());
+        self.users.insert(user_id, sender);
+        self.online_users.push(user_id);
 
         debug!("User {} registered successfully", user_id);
 
@@ -181,7 +181,7 @@ impl MessageRouter {
         }
 
         if let Some(recipient_sender) = self.users.get(&to) {
-            let to_clone = to.clone();
+            let to_clone = to;
             let message = ChatMessage::DirectMessage {
                 from,
                 to,

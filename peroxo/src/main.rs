@@ -30,7 +30,7 @@ async fn ws_handler(
 ) -> impl IntoResponse {
     // Need proper authentication here
     let token = match params.get("token") {
-        Some(token) => token.clone(),
+        Some(token) => *token,
         None => {
             return "Missing token".into_response();
         }
