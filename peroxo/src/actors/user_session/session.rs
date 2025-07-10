@@ -1,9 +1,9 @@
-use crate::actors::message_router::RouterMessage;
+use crate::actors::{message_router::RouterMessage, user_session::handlers};
 use crate::chat::ChatMessage;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 pub struct UserSession {
     user_id: i32,
@@ -24,7 +24,7 @@ impl UserSession {
         // Register with the message router
         let (respond_to, response) = oneshot::channel();
         let register_msg = RouterMessage::RegisterUser {
-            user_id: user_id.clone(),
+            user_id,
             sender: session_sender,
             respond_to,
         };
@@ -55,13 +55,13 @@ impl UserSession {
 
     pub async fn run(self) {
         let (mut ws_sender, mut ws_receiver) = self.socket.split();
-        let user_id = self.user_id.clone();
+        let user_id = self.user_id;
         let router_sender = self.router_sender.clone();
         let mut session_receiver = self.session_receiver;
 
         let (ack_sender, mut ack_receiver) = mpsc::channel::<ChatMessage>(100);
         // Task to handle outgoing messages (from session to WebSocket)
-        let user_id_clone = user_id.clone();
+        let user_id_clone = user_id;
         let mut send_task = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -114,7 +114,7 @@ impl UserSession {
         });
 
         // Task to handle incoming messages (from WebSocket to router)
-        let user_id_clone = user_id.clone();
+        let user_id_clone = user_id;
         let router_sender_clone = router_sender.clone();
 
         let mut recv_task = tokio::spawn(async move {
@@ -126,42 +126,19 @@ impl UserSession {
                         content,
                         message_id,
                     }) => {
-                        // Validate sender
-                        if from != user_id_clone {
-                            warn!(
-                                "User {} attempted to spoof message from {}",
-                                user_id_clone, from
-                            );
-                            continue;
-                        }
-
-                        let (respond_to, response) = oneshot::channel();
-                        let router_msg = RouterMessage::SendDirectMessage {
+                        if let Err(e) = handlers::handle_direct_message(
+                            user_id_clone,
                             from,
                             to,
                             content,
                             message_id,
-                            respond_to: Some(respond_to),
-                        };
-
-                        if router_sender_clone.send(router_msg).is_err() {
-                            error!("Failed to send message to router");
-                            break;
+                            &router_sender_clone,
+                            &ack_sender,
+                        )
+                        .await
+                        {
+                            error!("Failed to handle direct message: {}", e);
                         }
-
-                        // Handle acknowledgment response
-                        let ack_sender_clone = ack_sender.clone();
-                        tokio::spawn(async move {
-                            if let Ok(ack_response) = response.await {
-                                let ack_message = ChatMessage::MessageAck {
-                                    message_id: ack_response.message_id,
-                                    timestamp: ack_response.timestamp,
-                                    status: ack_response.status,
-                                };
-
-                                let _ = ack_sender_clone.send(ack_message).await;
-                            }
-                        });
                     }
                     Ok(_) => {
                         // Ignore other message types from clients for now
@@ -186,9 +163,7 @@ impl UserSession {
         }
 
         // Unregister from router
-        let unregister_msg = RouterMessage::UnregisterUser {
-            user_id: user_id.clone(),
-        };
+        let unregister_msg = RouterMessage::UnregisterUser { user_id };
         let _ = router_sender.send(unregister_msg);
 
         debug!("User session ended for {}", user_id);
