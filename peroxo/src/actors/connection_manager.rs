@@ -1,4 +1,4 @@
-use crate::actors::{message_router::RouterMessage, user_session::UserSession};
+use crate::actors::{message_router::RouterMessage, user_session::session::UserSession};
 use axum::extract::ws::WebSocket;
 use tokio::sync::mpsc;
 use tracing::{error, info};
@@ -15,7 +15,7 @@ impl ConnectionManager {
     pub async fn handle_connection(&self, socket: WebSocket, user_id: i32) {
         info!("New connection attempt for user: {}", user_id);
 
-        match UserSession::new(user_id.clone(), socket, self.router_sender.clone()).await {
+        match UserSession::new(user_id, socket, self.router_sender.clone()).await {
             Ok(session) => {
                 info!("User session created for: {}", user_id);
                 session.run().await;
