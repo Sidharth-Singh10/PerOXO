@@ -1,2 +1,2 @@
-pub mod session;
 mod handlers;
+pub mod session;
