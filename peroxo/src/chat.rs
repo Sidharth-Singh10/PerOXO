@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ChatMessage {
@@ -18,6 +19,19 @@ pub enum ChatMessage {
         message_id: uuid::Uuid,
         timestamp: i64,
         status: MessageStatus,
+    },
+
+    GetPaginatedMessages {
+        // paginataion cursor
+        message_id: Option<uuid::Uuid>,
+        // feat: add limit for pagination
+        // limit: Option<u32>,
+        conversation_id: String,
+    },
+    ChatHistoryResponse {
+        messages: Vec<ResponseDirectMessage>,
+        has_more: bool,
+        next_cursor: Option<uuid::Uuid>,
     },
 }
 
@@ -39,4 +53,15 @@ pub struct MessageAckResponse {
 pub enum PresenceStatus {
     Online,
     Offline,
+}
+
+// Rename Struct to something more appropriate
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResponseDirectMessage {
+    pub conversation_id: String,
+    pub message_id: Uuid,
+    pub sender_id: i32,
+    pub recipient_id: i32,
+    pub message_text: String,
+    pub created_at: i64,
 }

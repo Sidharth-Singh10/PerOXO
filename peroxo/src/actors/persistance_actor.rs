@@ -3,13 +3,13 @@ use tonic::Request;
 use tonic::transport::Channel;
 use tracing::{debug, error, info, warn};
 
-use crate::actors::chat_service::{
-    WriteDmRequest, WriteDmResponse, chat_service_client::ChatServiceClient,
+use crate::{
+    actors::chat_service::{
+        GetPaginatedMessagesRequest, WriteDmRequest, WriteDmResponse,
+        chat_service_client::ChatServiceClient,
+    },
+    chat::ResponseDirectMessage,
 };
-
-// use crate::actors::persistance_actor::chat_service::{
-//     WriteDmRequest, WriteDmResponse, chat_service_client::ChatServiceClient,
-// };
 
 #[derive(Debug)]
 pub enum PersistenceMessage {
@@ -20,6 +20,11 @@ pub enum PersistenceMessage {
         message_id: uuid::Uuid,
         timestamp: i64,
         respond_to: oneshot::Sender<Result<(), String>>,
+    },
+    GetPaginatedMessages {
+        message_id: Option<uuid::Uuid>,
+        conversation_id: String,
+        respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
     },
 }
 
@@ -65,6 +70,16 @@ impl PersistenceActor {
                         )
                         .await;
 
+                    let _ = respond_to.send(result);
+                }
+                PersistenceMessage::GetPaginatedMessages {
+                    message_id,
+                    conversation_id,
+                    respond_to,
+                } => {
+                    let result = self
+                        .handle_get_paginated_messages(message_id, conversation_id)
+                        .await;
                     let _ = respond_to.send(result);
                 }
             }
@@ -161,4 +176,74 @@ impl PersistenceActor {
 
         Err(last_error.unwrap())
     }
+
+    async fn handle_get_paginated_messages(
+        &mut self,
+        message_id: Option<uuid::Uuid>,
+        conversation_id: String,
+    ) -> Result<PaginatedMessagesResponse, String> {
+        let cursor_message_id = message_id.map(|id| id.to_string()).unwrap_or_default();
+
+        let request = Request::new(GetPaginatedMessagesRequest {
+            conversation_id,
+            cursor_message_id,
+        });
+
+        match self
+            .chat_service_client
+            .get_paginated_messages(request)
+            .await
+        {
+            Ok(response) => {
+                let get_paginated_response = response.into_inner();
+                if get_paginated_response.success {
+                    let messages: Vec<ResponseDirectMessage> = get_paginated_response
+                        .messages
+                        .into_iter()
+                        .map(|msg| ResponseDirectMessage {
+                            conversation_id: msg.conversation_id,
+                            message_id: uuid::Uuid::parse_str(&msg.message_id)
+                                .unwrap_or_else(|_| uuid::Uuid::new_v4()),
+                            sender_id: msg.sender_id,
+                            recipient_id: msg.recipient_id,
+                            message_text: msg.message_text,
+                            created_at: msg.created_at,
+                        })
+                        .collect::<Vec<ResponseDirectMessage>>();
+
+                    let next_cursor = if get_paginated_response.next_cursor.is_empty() {
+                        None
+                    } else {
+                        Some(get_paginated_response.next_cursor)
+                    };
+
+                    let has_more = next_cursor.is_some();
+
+                    debug!("Successfully fetched {} paginated messages", messages.len());
+                    Ok(PaginatedMessagesResponse {
+                        messages,
+                        next_cursor,
+                        has_more,
+                    })
+                } else {
+                    error!(
+                        "Failed to fetch paginated messages: {}",
+                        get_paginated_response.error_message
+                    );
+                    Err(get_paginated_response.error_message)
+                }
+            }
+            Err(e) => {
+                error!("gRPC call failed: {}", e);
+                Err(format!("gRPC call failed: {}", e))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PaginatedMessagesResponse {
+    pub messages: Vec<ResponseDirectMessage>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
 }
