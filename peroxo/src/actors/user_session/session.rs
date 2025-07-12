@@ -140,6 +140,44 @@ impl UserSession {
                             error!("Failed to handle direct message: {}", e);
                         }
                     }
+                    Ok(ChatMessage::GetPaginatedMessages {
+                        message_id,
+                        conversation_id,
+                    }) => {
+                        let (respond_to, response) = oneshot::channel();
+                        let router_msg = RouterMessage::GetChatHistory {
+                            message_id,
+                            conversation_id,
+                            respond_to,
+                        };
+
+                        if router_sender_clone.send(router_msg).is_err() {
+                            error!("Failed to send chat history request to router");
+                        } else {
+                            let ack_sender_clone = ack_sender.clone();
+                            tokio::spawn(async move {
+                                match response.await {
+                                    Ok(Ok(paginated_response)) => {
+                                        let response_msg = ChatMessage::ChatHistoryResponse {
+                                            messages: paginated_response.messages,
+                                            has_more: paginated_response.has_more,
+                                            next_cursor: paginated_response.next_cursor.and_then(
+                                                |cursor| uuid::Uuid::parse_str(&cursor).ok(),
+                                            ),
+                                        };
+                                        let _ = ack_sender_clone.send(response_msg).await;
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!("Failed to get chat history: {}", e);
+                                    }
+                                    Err(_) => {
+                                        error!("Chat history request timeout");
+                                    }
+                                }
+                            });
+                        }
+                    }
+
                     Ok(_) => {
                         // Ignore other message types from clients for now
                     }

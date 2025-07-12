@@ -1,5 +1,5 @@
 use crate::{
-    actors::persistance_actor::PersistenceMessage,
+    actors::persistance_actor::{PaginatedMessagesResponse, PersistenceMessage},
     chat::{ChatMessage, MessageAckResponse, MessageStatus, PresenceStatus},
 };
 use std::collections::HashMap;
@@ -25,6 +25,11 @@ pub enum RouterMessage {
     },
     GetOnlineUsers {
         respond_to: oneshot::Sender<Vec<i32>>,
+    },
+    GetChatHistory {
+        message_id: Option<uuid::Uuid>,
+        conversation_id: String,
+        respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
     },
 }
 
@@ -78,6 +83,14 @@ impl MessageRouter {
                 }
                 RouterMessage::GetOnlineUsers { respond_to } => {
                     let _ = respond_to.send(self.online_users.clone());
+                }
+                RouterMessage::GetChatHistory {
+                    message_id,
+                    conversation_id,
+                    respond_to,
+                } => {
+                    self.handle_get_chat_history(message_id, conversation_id, respond_to)
+                        .await;
                 }
             }
         }
@@ -218,6 +231,38 @@ impl MessageRouter {
         for sender in self.users.values() {
             // Use try_send for presence updates to avoid blocking
             let _ = sender.try_send(message.clone());
+        }
+    }
+
+    async fn handle_get_chat_history(
+        &self,
+        message_id: Option<uuid::Uuid>,
+        conversation_id: String,
+        respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
+    ) {
+        if let Some(persistence_sender) = &self.persistence_sender {
+            let (persist_respond_to, persist_response) = oneshot::channel();
+            let persist_msg = PersistenceMessage::GetPaginatedMessages {
+                message_id,
+                conversation_id,
+                respond_to: persist_respond_to,
+            };
+
+            if persistence_sender.send(persist_msg).is_err() {
+                let _ = respond_to.send(Err("Failed to communicate with persistence".to_string()));
+                return;
+            }
+
+            tokio::spawn(async move {
+                match persist_response.await {
+                    Ok(result) => {
+                        let _ = respond_to.send(result);
+                    }
+                    Err(_) => {
+                        let _ = respond_to.send(Err("Persistence timeout".to_string()));
+                    }
+                }
+            });
         }
     }
 }
