@@ -1,4 +1,5 @@
-use std::net::SocketAddr;
+use per_oxo::{peroxo_route, state::AppStateBuilder};
+use std::{net::SocketAddr, sync::Arc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -12,7 +13,9 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let app = per_oxo::build_app().await;
+    let state = AppStateBuilder::new().build().await.unwrap();
+
+    let app = peroxo_route(Arc::new(state));
 
     let addr = std::env::var("PER_OXO_SERVICE_ADDR").unwrap();
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();

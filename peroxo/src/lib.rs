@@ -30,32 +30,8 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| dm_socket(socket, token, state))
 }
 
-pub async fn build_state() -> Arc<AppState> {
-    #[cfg(feature = "persistence")]
-    let chat_service_client = connect_chat_service_client().await.unwrap();
-
-    Arc::new(
-        AppState::new(
-            #[cfg(feature = "persistence")]
-            chat_service_client,
-        )
-        .await
-        .unwrap(),
-    )
-}
-
-pub async fn build_app() -> Router {
-    #[cfg(feature = "persistence")]
-    let chat_service_client = connect_chat_service_client().await.unwrap();
-
-    let state = AppState::new(
-        #[cfg(feature = "persistence")]
-        chat_service_client,
-    )
-    .await
-    .unwrap();
-
+pub fn peroxo_route(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/ws", any(ws_handler))
-        .with_state(state.into())
+        .with_state(state)
 }
