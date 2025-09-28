@@ -1,4 +1,4 @@
-use per_oxo::{peroxo_route, state::AppStateBuilder};
+use per_oxo::{peroxo_route, state::PerOxoStateBuilder};
 use std::{net::SocketAddr, sync::Arc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -13,7 +13,7 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let state = AppStateBuilder::new().build().await.unwrap();
+    let state = PerOxoStateBuilder::new().build().await.unwrap();
 
     let app = peroxo_route(Arc::new(state));
 
