@@ -10,12 +10,12 @@ use crate::actors::{
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
-pub struct AppState {
+pub struct PerOxoState {
     pub connection_manager: Arc<ConnectionManager>,
     pub router_sender: mpsc::UnboundedSender<RouterMessage>,
 }
 
-impl AppState {
+impl PerOxoState {
     async fn new(
         #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -41,12 +41,12 @@ impl AppState {
     }
 }
 
-pub struct AppStateBuilder {
+pub struct PerOxoStateBuilder {
     #[cfg(feature = "persistence")]
     connection_url: Option<String>,
 }
 
-impl AppStateBuilder {
+impl PerOxoStateBuilder {
     pub fn new() -> Self {
         Self {
             #[cfg(feature = "persistence")]
@@ -60,7 +60,7 @@ impl AppStateBuilder {
         self
     }
 
-    pub async fn build(self) -> Result<AppState, Box<dyn std::error::Error>> {
+    pub async fn build(self) -> Result<PerOxoState, Box<dyn std::error::Error>> {
         #[cfg(feature = "persistence")]
         let chat_service_client = if let Some(url) = self.connection_url {
             connect_chat_service_client(url).await?
@@ -68,7 +68,7 @@ impl AppStateBuilder {
             return Err("connection_url required when persistence is enabled".into());
         };
 
-        AppState::new(
+        PerOxoState::new(
             #[cfg(feature = "persistence")]
             chat_service_client,
         )

@@ -6,7 +6,7 @@ use axum::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{socket::dm_socket, state::AppState};
+use crate::{socket::dm_socket, state::PerOxoState};
 
 #[cfg(feature = "persistence")]
 use crate::connections::connect_chat_service_client;
@@ -19,7 +19,7 @@ pub mod state;
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<PerOxoState>>,
     Query(params): Query<HashMap<String, i32>>,
 ) -> impl IntoResponse {
     let token = match params.get("token") {
@@ -30,7 +30,7 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| dm_socket(socket, token, state))
 }
 
-pub fn peroxo_route(state: Arc<AppState>) -> Router {
+pub fn peroxo_route(state: Arc<PerOxoState>) -> Router {
     Router::new()
         .route("/ws", any(ws_handler))
         .with_state(state)

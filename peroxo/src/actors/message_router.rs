@@ -84,6 +84,7 @@ impl MessageRouter {
                     to,
                     content,
                     message_id,
+                    #[allow(unused_variables)]
                     respond_to,
                 } => {
                     self.handle_direct_message(
