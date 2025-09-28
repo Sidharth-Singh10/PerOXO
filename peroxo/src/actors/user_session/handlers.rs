@@ -19,6 +19,7 @@ pub async fn handle_direct_message(
     }
 
     let (respond_to, response) = oneshot::channel();
+
     let router_msg = RouterMessage::SendDirectMessage {
         from,
         to,

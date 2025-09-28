@@ -140,6 +140,7 @@ impl UserSession {
                             error!("Failed to handle direct message: {}", e);
                         }
                     }
+                    #[cfg(feature = "persistence")]
                     Ok(ChatMessage::GetPaginatedMessages {
                         message_id,
                         conversation_id,
