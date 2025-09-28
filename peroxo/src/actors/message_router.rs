@@ -1,7 +1,10 @@
+use crate::chat::{ChatMessage, MessageAckResponse, PresenceStatus};
+#[cfg(feature = "persistence")]
 use crate::{
     actors::persistance_actor::{PaginatedMessagesResponse, PersistenceMessage},
-    chat::{ChatMessage, MessageAckResponse, MessageStatus, PresenceStatus},
+    chat::MessageStatus,
 };
+
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
@@ -26,6 +29,7 @@ pub enum RouterMessage {
     GetOnlineUsers {
         respond_to: oneshot::Sender<Vec<i32>>,
     },
+    #[cfg(feature = "persistence")]
     GetChatHistory {
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
@@ -37,12 +41,15 @@ pub struct MessageRouter {
     receiver: mpsc::UnboundedReceiver<RouterMessage>,
     users: HashMap<i32, mpsc::Sender<ChatMessage>>,
     online_users: Vec<i32>,
+    #[cfg(feature = "persistence")]
     persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
 }
 
 impl MessageRouter {
     pub fn new(
-        persistence_sender: mpsc::UnboundedSender<PersistenceMessage>,
+        #[cfg(feature = "persistence")] persistence_sender: mpsc::UnboundedSender<
+            PersistenceMessage,
+        >,
     ) -> (Self, mpsc::UnboundedSender<RouterMessage>) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -50,6 +57,7 @@ impl MessageRouter {
             receiver,
             users: HashMap::new(),
             online_users: Vec::new(),
+            #[cfg(feature = "persistence")]
             persistence_sender: Some(persistence_sender),
         };
 
@@ -78,12 +86,20 @@ impl MessageRouter {
                     message_id,
                     respond_to,
                 } => {
-                    self.handle_direct_message(from, to, content, message_id, respond_to)
-                        .await;
+                    self.handle_direct_message(
+                        from,
+                        to,
+                        content,
+                        message_id,
+                        #[cfg(feature = "persistence")]
+                        respond_to,
+                    )
+                    .await;
                 }
                 RouterMessage::GetOnlineUsers { respond_to } => {
                     let _ = respond_to.send(self.online_users.clone());
                 }
+                #[cfg(feature = "persistence")]
                 RouterMessage::GetChatHistory {
                     message_id,
                     conversation_id,
@@ -137,59 +153,64 @@ impl MessageRouter {
         to: i32,
         content: String,
         message_id: uuid::Uuid,
-        respond_to: Option<oneshot::Sender<MessageAckResponse>>,
+        #[cfg(feature = "persistence")] respond_to: Option<oneshot::Sender<MessageAckResponse>>,
     ) {
-        if let Some(persistence_sender) = &self.persistence_sender {
-            let (persist_respond_to, persist_response) = oneshot::channel();
+        #[cfg(feature = "persistence")]
+        {
+            if let Some(persistence_sender) = &self.persistence_sender {
+                let (persist_respond_to, persist_response) = oneshot::channel();
 
-            let persist_msg = PersistenceMessage::PersistDirectMessage {
-                sender_id: from,
-                receiver_id: to,
-                message_content: content.clone(),
-                message_id,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                respond_to: persist_respond_to,
-            };
+                let persist_msg = PersistenceMessage::PersistDirectMessage {
+                    sender_id: from,
+                    receiver_id: to,
+                    message_content: content.clone(),
+                    message_id,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                    respond_to: persist_respond_to,
+                };
 
-            if let Err(e) = persistence_sender.send(persist_msg) {
-                tracing::error!("Failed to send message to persistence actor: {}", e);
+                if let Err(e) = persistence_sender.send(persist_msg) {
+                    tracing::error!("Failed to send message to persistence actor: {}", e);
+                    if let Some(responder) = respond_to {
+                        let _ = responder.send(MessageAckResponse {
+                            message_id,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                            status: MessageStatus::Failed(format!("Persistence error: {}", e)),
+                        });
+                    }
+                    return;
+                }
+
+                // Handle persistence response in background -- look into this later
                 if let Some(responder) = respond_to {
-                    let _ = responder.send(MessageAckResponse {
-                        message_id,
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                        status: MessageStatus::Failed(format!("Persistence error: {}", e)),
+                    tokio::spawn(async move {
+                        match persist_response.await {
+                            Ok(Ok(())) => {
+                                let _ = responder.send(MessageAckResponse {
+                                    message_id,
+                                    timestamp: chrono::Utc::now().timestamp_millis(),
+                                    status: MessageStatus::Persisted,
+                                });
+                            }
+                            Ok(Err(e)) => {
+                                let _ = responder.send(MessageAckResponse {
+                                    message_id,
+                                    timestamp: chrono::Utc::now().timestamp_millis(),
+                                    status: MessageStatus::Failed(e),
+                                });
+                            }
+                            Err(_) => {
+                                let _ = responder.send(MessageAckResponse {
+                                    message_id,
+                                    timestamp: chrono::Utc::now().timestamp_millis(),
+                                    status: MessageStatus::Failed(
+                                        "Persistence timeout".to_string(),
+                                    ),
+                                });
+                            }
+                        }
                     });
                 }
-                return;
-            }
-
-            // Handle persistence response in background -- look into this later
-            if let Some(responder) = respond_to {
-                tokio::spawn(async move {
-                    match persist_response.await {
-                        Ok(Ok(())) => {
-                            let _ = responder.send(MessageAckResponse {
-                                message_id,
-                                timestamp: chrono::Utc::now().timestamp_millis(),
-                                status: MessageStatus::Persisted,
-                            });
-                        }
-                        Ok(Err(e)) => {
-                            let _ = responder.send(MessageAckResponse {
-                                message_id,
-                                timestamp: chrono::Utc::now().timestamp_millis(),
-                                status: MessageStatus::Failed(e),
-                            });
-                        }
-                        Err(_) => {
-                            let _ = responder.send(MessageAckResponse {
-                                message_id,
-                                timestamp: chrono::Utc::now().timestamp_millis(),
-                                status: MessageStatus::Failed("Persistence timeout".to_string()),
-                            });
-                        }
-                    }
-                });
             }
         }
 
@@ -234,6 +255,7 @@ impl MessageRouter {
         }
     }
 
+    #[cfg(feature = "persistence")]
     async fn handle_get_chat_history(
         &self,
         message_id: Option<uuid::Uuid>,
