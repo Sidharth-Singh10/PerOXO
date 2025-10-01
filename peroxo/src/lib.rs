@@ -14,6 +14,7 @@ use crate::connections::connect_chat_service_client;
 pub mod actors;
 pub mod chat;
 pub mod connections;
+#[cfg(feature = "mongo_db")]
 pub mod mongo_db;
 pub mod socket;
 pub mod state;
