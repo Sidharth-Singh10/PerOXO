@@ -1,18 +1,19 @@
-
 #[cfg(feature = "mongo_db")]
 use mongodb::bson::doc;
 use tokio::sync::{mpsc, oneshot};
 use tonic::Request;
 #[cfg(feature = "persistence")]
 use tonic::transport::Channel;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 #[cfg(feature = "persistence")]
-use crate::actors::chat_service::chat_service_client::ChatServiceClient;
-use crate::{
-    actors::chat_service::{GetPaginatedMessagesRequest, WriteDmRequest, WriteDmResponse},
-    chat::ResponseDirectMessage,
+use tracing::warn;
+
+#[cfg(feature = "persistence")]
+use crate::actors::chat_service::{
+    WriteDmRequest, WriteDmResponse, chat_service_client::ChatServiceClient,
 };
+use crate::{actors::chat_service::GetPaginatedMessagesRequest, chat::ResponseDirectMessage};
 
 #[derive(Debug)]
 pub enum PersistenceMessage {

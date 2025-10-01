@@ -1,2 +1,2 @@
-#[cfg(feature = "mongo_db")]
 pub mod models;
+pub mod config;
