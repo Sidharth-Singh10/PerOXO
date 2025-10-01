@@ -13,6 +13,8 @@ use tracing::warn;
 use crate::actors::chat_service::{
     WriteDmRequest, WriteDmResponse, chat_service_client::ChatServiceClient,
 };
+#[cfg(feature = "mongo_db")]
+use crate::mongo_db::config::MongoDbConfig;
 use crate::{actors::chat_service::GetPaginatedMessagesRequest, chat::ResponseDirectMessage};
 
 #[derive(Debug)]
@@ -38,12 +40,15 @@ pub struct PersistenceActor {
     chat_service_client: ChatServiceClient<Channel>,
     #[cfg(feature = "mongo_db")]
     mango_db_client: mongodb::Client,
+    #[cfg(feature = "mongo_db")]
+    mongo_config: MongoDbConfig,
 }
 
 impl PersistenceActor {
     pub async fn new(
         #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
         #[cfg(feature = "mongo_db")] mango_db_client: mongodb::Client,
+        #[cfg(feature = "mongo_db")] mongo_config: MongoDbConfig,
     ) -> Result<(Self, mpsc::UnboundedSender<PersistenceMessage>), Box<dyn std::error::Error>> {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -53,6 +58,8 @@ impl PersistenceActor {
             chat_service_client,
             #[cfg(feature = "mongo_db")]
             mango_db_client,
+            #[cfg(feature = "mongo_db")]
+            mongo_config,
         };
 
         Ok((actor, sender))
@@ -183,7 +190,7 @@ impl PersistenceActor {
         client: &mongodb::Client,
         message: crate::mongo_db::models::DirectMessage,
     ) -> Result<(), mongodb::error::Error> {
-        let db = client.database("attachments");
+        let db = client.database(&self.mongo_config.database_name);
         let messages_col =
             db.collection::<crate::mongo_db::models::DirectMessage>("direct_messages");
         let conv_col =
