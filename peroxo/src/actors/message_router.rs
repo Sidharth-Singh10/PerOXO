@@ -30,7 +30,7 @@ pub enum RouterMessage {
         respond_to: oneshot::Sender<Vec<i32>>,
     },
     #[cfg(feature = "persistence")]
-    GetChatHistory {
+    GetPaginatedMessages {
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
@@ -100,7 +100,7 @@ impl MessageRouter {
                     let _ = respond_to.send(self.online_users.clone());
                 }
                 #[cfg(feature = "persistence")]
-                RouterMessage::GetChatHistory {
+                RouterMessage::GetPaginatedMessages {
                     message_id,
                     conversation_id,
                     respond_to,
