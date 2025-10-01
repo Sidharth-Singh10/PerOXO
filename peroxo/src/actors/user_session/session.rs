@@ -146,7 +146,7 @@ impl UserSession {
                         conversation_id,
                     }) => {
                         let (respond_to, response) = oneshot::channel();
-                        let router_msg = RouterMessage::GetChatHistory {
+                        let router_msg = RouterMessage::GetPaginatedMessages {
                             message_id,
                             conversation_id,
                             respond_to,
