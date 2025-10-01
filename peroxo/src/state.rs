@@ -4,9 +4,9 @@ use crate::actors::{
 };
 
 #[cfg(feature = "persistence")]
-use crate::actors::{
-    chat_service::chat_service_client::ChatServiceClient, persistance_actor::PersistenceActor,
-};
+use crate::actors::chat_service::chat_service_client::ChatServiceClient;
+#[cfg(any(feature = "mongo_db", feature = "persistence"))]
+use crate::actors::persistance_actor::PersistenceActor;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -18,20 +18,26 @@ pub struct PerOxoState {
 impl PerOxoState {
     async fn new(
         #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
+        #[cfg(feature = "mongo_db")] mango_db_client: mongodb::Client,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        #[cfg(feature = "persistence")]
-        let (persistence_actor, persistence_sender) =
-            PersistenceActor::new(chat_service_client).await?;
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+        let (persistence_actor, persistence_sender) = PersistenceActor::new(
+            #[cfg(feature = "persistence")]
+            chat_service_client,
+            #[cfg(feature = "mongo_db")]
+            mango_db_client,
+        )
+        .await?;
 
         let (router, router_sender) = MessageRouter::new(
-            #[cfg(feature = "persistence")]
+            #[cfg(any(feature = "mongo_db", feature = "persistence"))]
             persistence_sender,
         );
         let connection_manager = Arc::new(ConnectionManager::new(router_sender.clone()));
 
         // Spawn actors
         tokio::spawn(router.run());
-        #[cfg(feature = "persistence")]
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
         tokio::spawn(persistence_actor.run());
 
         Ok(Self {
@@ -44,6 +50,8 @@ impl PerOxoState {
 pub struct PerOxoStateBuilder {
     #[cfg(feature = "persistence")]
     connection_url: Option<String>,
+    #[cfg(feature = "mongo_db")]
+    mango_db_url: Option<String>,
 }
 
 impl PerOxoStateBuilder {
@@ -51,12 +59,20 @@ impl PerOxoStateBuilder {
         Self {
             #[cfg(feature = "persistence")]
             connection_url: None,
+            #[cfg(feature = "mongo_db")]
+            mango_db_url: None,
         }
     }
 
     #[cfg(feature = "persistence")]
-    pub fn with_persistence_connection_url(mut self, url: String) -> Self {
-        self.connection_url = Some(url);
+    pub fn with_persistence_connection_url(mut self, url: impl Into<String>) -> Self {
+        self.connection_url = Some(url.into());
+        self
+    }
+
+    #[cfg(feature = "mongo_db")]
+    pub fn with_mango_db_connection_url(mut self, url: impl Into<String>) -> Self {
+        self.mango_db_url = Some(url.into());
         self
     }
 
@@ -68,9 +84,20 @@ impl PerOxoStateBuilder {
             return Err("connection_url required when persistence is enabled".into());
         };
 
+        #[cfg(feature = "mongo_db")]
+        let mango_db_client = if let Some(url) = self.mango_db_url {
+            use crate::connections::connect_mongo_db_client;
+
+            connect_mongo_db_client(url).await?
+        } else {
+            return Err("mango_db_url required when mangodb is enabled".into());
+        };
+
         PerOxoState::new(
             #[cfg(feature = "persistence")]
             chat_service_client,
+            #[cfg(feature = "mongo_db")]
+            mango_db_client,
         )
         .await
     }
