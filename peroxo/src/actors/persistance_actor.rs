@@ -1,13 +1,16 @@
+
+#[cfg(feature = "mongo_db")]
+use mongodb::bson::doc;
 use tokio::sync::{mpsc, oneshot};
 use tonic::Request;
+#[cfg(feature = "persistence")]
 use tonic::transport::Channel;
 use tracing::{debug, error, info, warn};
 
+#[cfg(feature = "persistence")]
+use crate::actors::chat_service::chat_service_client::ChatServiceClient;
 use crate::{
-    actors::chat_service::{
-        GetPaginatedMessagesRequest, WriteDmRequest, WriteDmResponse,
-        chat_service_client::ChatServiceClient,
-    },
+    actors::chat_service::{GetPaginatedMessagesRequest, WriteDmRequest, WriteDmResponse},
     chat::ResponseDirectMessage,
 };
 
@@ -30,18 +33,25 @@ pub enum PersistenceMessage {
 
 pub struct PersistenceActor {
     receiver: mpsc::UnboundedReceiver<PersistenceMessage>,
+    #[cfg(feature = "persistence")]
     chat_service_client: ChatServiceClient<Channel>,
+    #[cfg(feature = "mongo_db")]
+    mango_db_client: mongodb::Client,
 }
 
 impl PersistenceActor {
     pub async fn new(
-        chat_service_client: ChatServiceClient<Channel>,
+        #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
+        #[cfg(feature = "mongo_db")] mango_db_client: mongodb::Client,
     ) -> Result<(Self, mpsc::UnboundedSender<PersistenceMessage>), Box<dyn std::error::Error>> {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         let actor = Self {
             receiver,
+            #[cfg(feature = "persistence")]
             chat_service_client,
+            #[cfg(feature = "mongo_db")]
+            mango_db_client,
         };
 
         Ok((actor, sender))
@@ -96,6 +106,41 @@ impl PersistenceActor {
         message_id: uuid::Uuid,
         timestamp: i64,
     ) -> Result<(), String> {
+        #[cfg(feature = "mongo_db")]
+        {
+            use crate::mongo_db::models::DirectMessageId;
+
+            let message = crate::mongo_db::models::DirectMessage {
+                id: DirectMessageId {
+                    conversation_id: if sender_id < receiver_id {
+                        format!("{}_{}", sender_id, receiver_id)
+                    } else {
+                        format!("{}_{}", receiver_id, sender_id)
+                    },
+                    message_id: message_id.to_string(),
+                },
+
+                sender_id,
+                recipient_id: receiver_id,
+                message_text: message_content.clone(),
+                created_at: mongodb::bson::DateTime::from_millis(timestamp),
+            };
+
+            if let Err(e) = self
+                .insert_message_in_mongo(&self.mango_db_client, message)
+                .await
+            {
+                error!("Failed to persist message to MongoDB: {}", e);
+                return Err(format!("MongoDB persistence failed: {}", e));
+            }
+            debug!(
+                "Successfully persisted message to MongoDB from {} to {}",
+                sender_id, receiver_id
+            );
+            Ok(())
+        }
+
+        #[cfg(feature = "persistence")]
         // Make the gRPC call with retry logic
         match self
             .write_dm_with_retry(
@@ -131,6 +176,54 @@ impl PersistenceActor {
         }
     }
 
+    #[cfg(feature = "mongo_db")]
+    async fn insert_message_in_mongo(
+        &self,
+        client: &mongodb::Client,
+        message: crate::mongo_db::models::DirectMessage,
+    ) -> Result<(), mongodb::error::Error> {
+        let db = client.database("attachments");
+        let messages_col =
+            db.collection::<crate::mongo_db::models::DirectMessage>("direct_messages");
+        let conv_col =
+            db.collection::<crate::mongo_db::models::UserConversation>("user_conversations");
+
+        // Start a session for transaction
+        let mut session = client.start_session().await?;
+        session.start_transaction().await?;
+
+        // Insert the message
+        messages_col
+            .insert_one(message.clone())
+            .session(&mut session)
+            .await?;
+
+        // Update last_message for sender
+        conv_col
+        .update_one(
+            doc! { "_id.user_id": message.sender_id, "_id.conversation_id": &message.id.conversation_id },
+            doc! { "$set": { "last_message": message.created_at } },
+        )
+        .upsert(true)
+        .session(&mut session)
+        .await?;
+
+        // Update last_message for recipient
+        conv_col
+        .update_one(
+            doc! { "_id.user_id": message.recipient_id, "_id.conversation_id": &message.id.conversation_id },
+            doc! { "$set": { "last_message": message.created_at } },
+        )
+        .upsert(true)
+        .session(&mut session)
+        .await?;
+
+        session.commit_transaction().await?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "persistence")]
     async fn write_dm_with_retry(
         &mut self,
         sender_id: i32,
@@ -153,6 +246,7 @@ impl PersistenceActor {
                 timestamp,
             });
 
+            #[cfg(feature = "persistence")]
             match self.chat_service_client.write_dm(request).await {
                 Ok(response) => return Ok(response),
                 Err(e) => {
@@ -189,6 +283,13 @@ impl PersistenceActor {
             cursor_message_id,
         });
 
+        return Ok(PaginatedMessagesResponse {
+            messages: Vec::new(),
+            next_cursor: None,
+            has_more: false,
+        });
+
+        #[cfg(feature = "persistence")]
         match self
             .chat_service_client
             .get_paginated_messages(request)

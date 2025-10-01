@@ -1,5 +1,5 @@
 use crate::chat::{ChatMessage, MessageAckResponse, PresenceStatus};
-#[cfg(feature = "persistence")]
+#[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::{
     actors::persistance_actor::{PaginatedMessagesResponse, PersistenceMessage},
     chat::MessageStatus,
@@ -41,15 +41,14 @@ pub struct MessageRouter {
     receiver: mpsc::UnboundedReceiver<RouterMessage>,
     users: HashMap<i32, mpsc::Sender<ChatMessage>>,
     online_users: Vec<i32>,
-    #[cfg(feature = "persistence")]
+    #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
 }
 
 impl MessageRouter {
     pub fn new(
-        #[cfg(feature = "persistence")] persistence_sender: mpsc::UnboundedSender<
-            PersistenceMessage,
-        >,
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+        persistence_sender: mpsc::UnboundedSender<PersistenceMessage>,
     ) -> (Self, mpsc::UnboundedSender<RouterMessage>) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -57,7 +56,7 @@ impl MessageRouter {
             receiver,
             users: HashMap::new(),
             online_users: Vec::new(),
-            #[cfg(feature = "persistence")]
+            #[cfg(any(feature = "mongo_db", feature = "persistence"))]
             persistence_sender: Some(persistence_sender),
         };
 
@@ -92,7 +91,7 @@ impl MessageRouter {
                         to,
                         content,
                         message_id,
-                        #[cfg(feature = "persistence")]
+                        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
                         respond_to,
                     )
                     .await;
@@ -154,9 +153,11 @@ impl MessageRouter {
         to: i32,
         content: String,
         message_id: uuid::Uuid,
-        #[cfg(feature = "persistence")] respond_to: Option<oneshot::Sender<MessageAckResponse>>,
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))] respond_to: Option<
+            oneshot::Sender<MessageAckResponse>,
+        >,
     ) {
-        #[cfg(feature = "persistence")]
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
         {
             if let Some(persistence_sender) = &self.persistence_sender {
                 let (persist_respond_to, persist_response) = oneshot::channel();
