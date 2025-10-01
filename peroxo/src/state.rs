@@ -7,6 +7,8 @@ use crate::actors::{
 use crate::actors::chat_service::chat_service_client::ChatServiceClient;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::actors::persistance_actor::PersistenceActor;
+#[cfg(feature = "mongo_db")]
+use crate::mongo_db::config::MongoDbConfig;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -19,6 +21,7 @@ impl PerOxoState {
     async fn new(
         #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
         #[cfg(feature = "mongo_db")] mango_db_client: mongodb::Client,
+        #[cfg(feature = "mongo_db")] mongo_config: MongoDbConfig,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
         let (persistence_actor, persistence_sender) = PersistenceActor::new(
@@ -26,6 +29,8 @@ impl PerOxoState {
             chat_service_client,
             #[cfg(feature = "mongo_db")]
             mango_db_client,
+            #[cfg(feature = "mongo_db")]
+            mongo_config,
         )
         .await?;
 
@@ -51,7 +56,7 @@ pub struct PerOxoStateBuilder {
     #[cfg(feature = "persistence")]
     connection_url: Option<String>,
     #[cfg(feature = "mongo_db")]
-    mango_db_url: Option<String>,
+    mongo_config: Option<MongoDbConfig>,
 }
 
 impl PerOxoStateBuilder {
@@ -60,7 +65,7 @@ impl PerOxoStateBuilder {
             #[cfg(feature = "persistence")]
             connection_url: None,
             #[cfg(feature = "mongo_db")]
-            mango_db_url: None,
+            mongo_config: None,
         }
     }
 
@@ -71,8 +76,14 @@ impl PerOxoStateBuilder {
     }
 
     #[cfg(feature = "mongo_db")]
+    pub fn with_mongo_config(mut self, config: MongoDbConfig) -> Self {
+        self.mongo_config = Some(config);
+        self
+    }
+
+    #[cfg(feature = "mongo_db")]
     pub fn with_mango_db_connection_url(mut self, url: impl Into<String>) -> Self {
-        self.mango_db_url = Some(url.into());
+        self.mongo_config = Some(MongoDbConfig::new(url));
         self
     }
 
@@ -85,12 +96,12 @@ impl PerOxoStateBuilder {
         };
 
         #[cfg(feature = "mongo_db")]
-        let mango_db_client = if let Some(url) = self.mango_db_url {
+        let (mango_db_client, mongo_config) = if let Some(config) = self.mongo_config {
             use crate::connections::connect_mongo_db_client;
-
-            connect_mongo_db_client(url).await?
+            let client = connect_mongo_db_client(&config.connection_url).await?;
+            (client, config)
         } else {
-            return Err("mango_db_url required when mangodb is enabled".into());
+            return Err("mongo_config required when mongo_db is enabled".into());
         };
 
         PerOxoState::new(
@@ -98,6 +109,8 @@ impl PerOxoStateBuilder {
             chat_service_client,
             #[cfg(feature = "mongo_db")]
             mango_db_client,
+            #[cfg(feature = "mongo_db")]
+            mongo_config,
         )
         .await
     }

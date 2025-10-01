@@ -13,11 +13,7 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let state = match PerOxoStateBuilder::new()
-        // .with_mango_db_connection_url()
-        .build()
-        .await
-    {
+    let state = match PerOxoStateBuilder::new().build().await {
         Ok(state) => state,
         Err(e) => {
             tracing::error!("Failed to build PerOxoState: {:?}", e);
