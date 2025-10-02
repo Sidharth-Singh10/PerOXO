@@ -59,6 +59,12 @@ pub struct PerOxoStateBuilder {
     mongo_config: Option<MongoDbConfig>,
 }
 
+impl Default for PerOxoStateBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PerOxoStateBuilder {
     pub fn new() -> Self {
         Self {

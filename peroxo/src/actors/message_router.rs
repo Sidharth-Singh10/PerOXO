@@ -29,7 +29,7 @@ pub enum RouterMessage {
     GetOnlineUsers {
         respond_to: oneshot::Sender<Vec<i32>>,
     },
-    #[cfg(feature = "persistence")]
+    #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     GetPaginatedMessages {
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
@@ -99,13 +99,13 @@ impl MessageRouter {
                 RouterMessage::GetOnlineUsers { respond_to } => {
                     let _ = respond_to.send(self.online_users.clone());
                 }
-                #[cfg(feature = "persistence")]
+                #[cfg(any(feature = "mongo_db", feature = "persistence"))]
                 RouterMessage::GetPaginatedMessages {
                     message_id,
                     conversation_id,
                     respond_to,
                 } => {
-                    self.handle_get_chat_history(message_id, conversation_id, respond_to)
+                    self.handle_get_paginated_chat_history(message_id, conversation_id, respond_to)
                         .await;
                 }
             }
@@ -257,8 +257,8 @@ impl MessageRouter {
         }
     }
 
-    #[cfg(feature = "persistence")]
-    async fn handle_get_chat_history(
+    #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+    async fn handle_get_paginated_chat_history(
         &self,
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
