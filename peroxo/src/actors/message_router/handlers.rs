@@ -5,10 +5,10 @@ use super::router::MessageRouter;
 use crate::chat::ChatMessage;
 
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use crate::chat::{MessageAckResponse, MessageStatus};
+use crate::chat::{MessageAckResponse, MessageStatus, PaginatedMessagesResponse};
 
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use crate::actors::persistance_actor::{PaginatedMessagesResponse, PersistenceMessage};
+use crate::actors::persistance_actor::PersistenceMessage;
 
 impl MessageRouter {
     pub async fn handle_register_user(

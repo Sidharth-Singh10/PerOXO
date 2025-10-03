@@ -1,6 +1,7 @@
-use crate::chat::{ChatMessage, MessageAckResponse};
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use crate::actors::persistance_actor::PaginatedMessagesResponse;
+use crate::chat::PaginatedMessagesResponse;
+use crate::chat::{ChatMessage, MessageAckResponse};
+
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
