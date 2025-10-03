@@ -1,4 +1,4 @@
-use crate::chat::{ChatMessage, MessageAckResponse, PresenceStatus};
+use crate::chat::{ChatMessage, MessageAckResponse};
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::{
     actors::persistance_actor::{PaginatedMessagesResponse, PersistenceMessage},
@@ -131,8 +131,8 @@ impl MessageRouter {
         debug!("User {} registered successfully", user_id);
 
         // Broadcast presence update to all users
-        self.broadcast_presence_update(user_id, PresenceStatus::Online)
-            .await;
+        // self.broadcast_presence_update(user_id, PresenceStatus::Online)
+        //     .await;
 
         let _ = respond_to.send(Ok(()));
     }
@@ -142,8 +142,8 @@ impl MessageRouter {
             self.online_users.retain(|u| u != &user_id);
 
             // Broadcast presence update to all users
-            self.broadcast_presence_update(user_id, PresenceStatus::Offline)
-                .await;
+            // self.broadcast_presence_update(user_id, PresenceStatus::Offline)
+            //     .await;
         }
     }
 
@@ -245,17 +245,17 @@ impl MessageRouter {
         }
     }
 
-    async fn broadcast_presence_update(&self, user_id: i32, status: PresenceStatus) {
-        let message = ChatMessage::Presence {
-            user: user_id,
-            status,
-        };
+    // async fn broadcast_presence_update(&self, user_id: i32, status: PresenceStatus) {
+    //     let message = ChatMessage::Presence {
+    //         user: user_id,
+    //         status,
+    //     };
 
-        for sender in self.users.values() {
-            // Use try_send for presence updates to avoid blocking
-            let _ = sender.try_send(message.clone());
-        }
-    }
+    //     for sender in self.users.values() {
+    //         // Use try_send for presence updates to avoid blocking
+    //         let _ = sender.try_send(message.clone());
+    //     }
+    // }
 
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     async fn handle_get_paginated_chat_history(
