@@ -65,3 +65,10 @@ pub struct ResponseDirectMessage {
     pub message_text: String,
     pub created_at: i64,
 }
+
+#[derive(Clone, Debug)]
+pub struct PaginatedMessagesResponse {
+    pub messages: Vec<ResponseDirectMessage>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
