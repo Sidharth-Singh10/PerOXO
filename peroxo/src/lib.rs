@@ -8,9 +8,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{socket::dm_socket, state::PerOxoState};
 
-#[cfg(feature = "persistence")]
-use crate::connections::connect_chat_service_client;
-
 pub mod actors;
 pub mod chat;
 pub mod connections;

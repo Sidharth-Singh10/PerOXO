@@ -12,6 +12,8 @@ use crate::mongo_db::config::MongoDbConfig;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
+#[cfg(feature = "persistence")]
+use tonic::transport::Channel;
 pub struct PerOxoState {
     pub connection_manager: Arc<ConnectionManager>,
     pub router_sender: mpsc::UnboundedSender<RouterMessage>,
@@ -96,6 +98,7 @@ impl PerOxoStateBuilder {
     pub async fn build(self) -> Result<PerOxoState, Box<dyn std::error::Error>> {
         #[cfg(feature = "persistence")]
         let chat_service_client = if let Some(url) = self.connection_url {
+            use crate::connections::connect_chat_service_client;
             connect_chat_service_client(url).await?
         } else {
             return Err("connection_url required when persistence is enabled".into());
