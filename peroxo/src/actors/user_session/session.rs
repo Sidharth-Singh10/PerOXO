@@ -10,6 +10,7 @@ pub struct UserSession {
     socket: WebSocket,
     router_sender: mpsc::UnboundedSender<RouterMessage>,
     session_receiver: mpsc::Receiver<ChatMessage>,
+    session_sender: mpsc::Sender<ChatMessage>,
 }
 
 impl UserSession {
@@ -25,7 +26,7 @@ impl UserSession {
         let (respond_to, response) = oneshot::channel();
         let register_msg = RouterMessage::RegisterUser {
             user_id,
-            sender: session_sender,
+            sender: session_sender.clone(),
             respond_to,
         };
 
@@ -50,6 +51,7 @@ impl UserSession {
             socket,
             router_sender,
             session_receiver,
+            session_sender,
         })
     }
 
@@ -57,6 +59,7 @@ impl UserSession {
         let (mut ws_sender, mut ws_receiver) = self.socket.split();
         let user_id = self.user_id;
         let router_sender = self.router_sender.clone();
+        let session_sender_for_rooms = self.session_sender.clone();
         let mut session_receiver = self.session_receiver;
 
         let (ack_sender, mut ack_receiver) = mpsc::channel::<ChatMessage>(100);
@@ -176,6 +179,40 @@ impl UserSession {
                                     }
                                 }
                             });
+                        }
+                    }
+
+                    Ok(ChatMessage::RoomMessage {
+                        room_id,
+                        from,
+                        content,
+                        message_id,
+                    }) => {
+                        if let Err(e) = handlers::handle_room_message(
+                            user_id_clone,
+                            room_id,
+                            from,
+                            content,
+                            message_id,
+                            &router_sender_clone,
+                            &ack_sender,
+                        )
+                        .await
+                        {
+                            error!("Failed to handle room message: {}", e);
+                        }
+                    }
+                    Ok(ChatMessage::JoinRoom { room_id }) => {
+                        let (respond_to, _) = oneshot::channel();
+                        let router_msg = RouterMessage::JoinRoom {
+                            user_id: user_id_clone,
+                            room_id,
+                            sender: session_sender_for_rooms.clone(),
+                            respond_to,
+                        };
+
+                        if router_sender_clone.send(router_msg).is_err() {
+                            error!("Failed to send join room request to router");
                         }
                     }
 

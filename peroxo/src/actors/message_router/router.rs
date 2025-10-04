@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use tokio::sync::mpsc;
-use tracing::info;
-
 use super::messages::RouterMessage;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::actors::persistance_actor::PersistenceMessage;
+use crate::actors::room_actor::RoomMessage;
 use crate::chat::ChatMessage;
+use std::collections::HashMap;
+use tokio::sync::mpsc;
+use tracing::info;
 
 pub struct MessageRouter {
     pub receiver: mpsc::UnboundedReceiver<RouterMessage>,
@@ -13,6 +13,7 @@ pub struct MessageRouter {
     pub online_users: Vec<i32>,
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     pub persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
+    pub rooms: HashMap<String, mpsc::UnboundedSender<RoomMessage>>,
 }
 
 impl MessageRouter {
@@ -28,6 +29,7 @@ impl MessageRouter {
             online_users: Vec::new(),
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
             persistence_sender: Some(persistence_sender),
+            rooms: HashMap::new(),
         };
 
         (router, sender)
@@ -77,6 +79,34 @@ impl MessageRouter {
                 } => {
                     self.handle_get_paginated_chat_history(message_id, conversation_id, respond_to)
                         .await;
+                }
+                RouterMessage::JoinRoom {
+                    user_id,
+                    room_id,
+                    sender,
+                    respond_to,
+                } => {
+                    self.handle_join_room(user_id, room_id, sender, respond_to)
+                        .await;
+                }
+                RouterMessage::LeaveRoom { user_id, room_id } => {
+                    self.handle_leave_room(user_id, room_id).await;
+                }
+                RouterMessage::SendRoomMessage {
+                    room_id,
+                    from,
+                    content,
+                    message_id,
+                    respond_to,
+                } => {
+                    self.handle_room_message(room_id, from, content, message_id, respond_to)
+                        .await;
+                }
+                RouterMessage::GetRoomMembers {
+                    room_id,
+                    respond_to,
+                } => {
+                    self.handle_get_room_members(room_id, respond_to).await;
                 }
             }
         }
