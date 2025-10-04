@@ -33,6 +33,19 @@ pub enum ChatMessage {
         has_more: bool,
         next_cursor: Option<uuid::Uuid>,
     },
+    RoomMessage {
+        room_id: String,
+        from: i32,
+        content: String,
+        message_id: uuid::Uuid,
+    },
+    JoinRoom {
+        room_id: String,
+    },
+
+    LeaveRoom {
+        room_id: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

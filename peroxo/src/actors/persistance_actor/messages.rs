@@ -17,4 +17,12 @@ pub enum PersistenceMessage {
         conversation_id: String,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
     },
+    PersistRoomMessage {
+        room_id: String,
+        sender_id: i32,
+        message_content: String,
+        message_id: uuid::Uuid,
+        timestamp: i64,
+        respond_to: oneshot::Sender<Result<(), String>>,
+    },
 }

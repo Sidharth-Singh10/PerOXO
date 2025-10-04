@@ -4,9 +4,9 @@ use tracing::info;
 use super::messages::PersistenceMessage;
 
 #[cfg(feature = "persistence")]
-use tonic::transport::Channel;
-#[cfg(feature = "persistence")]
 use crate::actors::chat_service::chat_service_client::ChatServiceClient;
+#[cfg(feature = "persistence")]
+use tonic::transport::Channel;
 
 #[cfg(feature = "mongo_db")]
 use crate::mongo_db::config::MongoDbConfig;
@@ -76,6 +76,16 @@ impl PersistenceActor {
                         .handle_get_paginated_messages(message_id, conversation_id)
                         .await;
                     let _ = respond_to.send(result);
+                }
+                PersistenceMessage::PersistRoomMessage {
+                    room_id: _,
+                    sender_id: _,
+                    message_content: _,
+                    message_id: _,
+                    timestamp: _,
+                    respond_to: _,
+                } => {
+                    info!("PersistRoomMessage is not yet implemented");
                 }
             }
         }

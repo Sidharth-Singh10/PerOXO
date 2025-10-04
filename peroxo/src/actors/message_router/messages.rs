@@ -2,7 +2,7 @@
 use crate::chat::PaginatedMessagesResponse;
 use crate::chat::{ChatMessage, MessageAckResponse};
 
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 pub enum RouterMessage {
@@ -29,5 +29,26 @@ pub enum RouterMessage {
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
+    },
+    JoinRoom {
+        user_id: i32,
+        room_id: String,
+        sender: mpsc::Sender<ChatMessage>,
+        respond_to: oneshot::Sender<Result<(), String>>,
+    },
+    LeaveRoom {
+        user_id: i32,
+        room_id: String,
+    },
+    SendRoomMessage {
+        room_id: String,
+        from: i32,
+        content: String,
+        message_id: uuid::Uuid,
+        respond_to: Option<oneshot::Sender<MessageAckResponse>>,
+    },
+    GetRoomMembers {
+        room_id: String,
+        respond_to: oneshot::Sender<Option<Vec<i32>>>,
     },
 }

@@ -1,11 +1,14 @@
 use tokio::sync::{mpsc, oneshot};
-use tracing::debug;
+use tracing::{debug, error, info};
 
 use super::router::MessageRouter;
-use crate::chat::ChatMessage;
+#[cfg(any(feature = "mongo_db", feature = "persistence"))]
+use crate::actors::room_actor::RoomActor;
+use crate::actors::room_actor::RoomMessage;
+use crate::chat::{ChatMessage, MessageAckResponse, MessageStatus};
 
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use crate::chat::{MessageAckResponse, MessageStatus, PaginatedMessagesResponse};
+use crate::chat::PaginatedMessagesResponse;
 
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::actors::persistance_actor::PersistenceMessage;
@@ -184,6 +187,127 @@ impl MessageRouter {
                     }
                 }
             });
+        }
+    }
+
+    pub async fn handle_join_room(
+        &mut self,
+        user_id: i32,
+        room_id: String,
+        sender: mpsc::Sender<ChatMessage>,
+        respond_to: oneshot::Sender<Result<(), String>>,
+    ) {
+        let room_sender = if let Some(sender) = self.rooms.get(&room_id) {
+            sender.clone()
+        } else {
+            // Create new room actor
+            #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+            let (room_actor, room_sender) = RoomActor::new(
+                room_id.clone(),
+                self.persistence_sender.as_ref().unwrap().clone(),
+            );
+
+            #[cfg(not(any(feature = "mongo_db", feature = "persistence")))]
+            let (room_actor, room_sender) = {
+                use crate::actors::room_actor::RoomActor;
+                RoomActor::new(room_id.clone())
+            };
+
+            tokio::spawn(room_actor.run());
+            self.rooms.insert(room_id.clone(), room_sender.clone());
+            info!("Created new room actor for room {}", room_id);
+            room_sender
+        };
+
+        let (room_respond_to, room_response) = oneshot::channel();
+        let room_msg = RoomMessage::AddMember {
+            user_id,
+            sender,
+            respond_to: room_respond_to,
+        };
+
+        if room_sender.send(room_msg).is_err() {
+            let _ = respond_to.send(Err("Failed to communicate with room".to_string()));
+            return;
+        }
+
+        tokio::spawn(async move {
+            match room_response.await {
+                Ok(result) => {
+                    let _ = respond_to.send(result);
+                }
+                Err(_) => {
+                    let _ = respond_to.send(Err("Room response timeout".to_string()));
+                }
+            }
+        });
+    }
+
+    pub async fn handle_leave_room(&mut self, user_id: i32, room_id: String) {
+        if let Some(room_sender) = self.rooms.get(&room_id) {
+            let room_msg = RoomMessage::RemoveMember { user_id };
+            let _ = room_sender.send(room_msg);
+        }
+    }
+
+    pub async fn handle_room_message(
+        &self,
+        room_id: String,
+        from: i32,
+        content: String,
+        message_id: uuid::Uuid,
+        respond_to: Option<oneshot::Sender<MessageAckResponse>>,
+    ) {
+        if let Some(room_sender) = self.rooms.get(&room_id) {
+            let room_msg = RoomMessage::SendMessage {
+                from,
+                content,
+                message_id,
+                respond_to,
+            };
+            if room_sender.send(room_msg).is_err() {
+                error!("Failed to send message to room {}", room_id);
+            }
+        } else {
+            debug!("Room {} not found", room_id);
+            if let Some(responder) = respond_to {
+                let _ = responder.send(MessageAckResponse {
+                    message_id,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                    status: MessageStatus::Failed("Room not found".to_string()),
+                });
+            }
+        }
+    }
+
+    pub async fn handle_get_room_members(
+        &self,
+        room_id: String,
+        respond_to: oneshot::Sender<Option<Vec<i32>>>,
+    ) {
+        if let Some(room_sender) = self.rooms.get(&room_id) {
+            let (room_respond_to, room_response) = oneshot::channel();
+            let room_msg = RoomMessage::GetMembers {
+                respond_to: room_respond_to,
+            };
+
+            if room_sender.send(room_msg).is_err() {
+                let _ = respond_to.send(None);
+                return;
+            }
+
+            tokio::spawn(async move {
+                match room_response.await {
+                    Ok(members) => {
+                        let _ = respond_to.send(Some(members));
+                    }
+                    Err(_) => {
+                        let _ = respond_to.send(None);
+                    }
+                }
+            });
+        } else {
+            let _ = respond_to.send(None);
         }
     }
 }
