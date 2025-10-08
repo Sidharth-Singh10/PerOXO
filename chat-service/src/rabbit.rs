@@ -1,4 +1,6 @@
-use crate::queries::DirectMessage;
+use std::error::Error;
+
+use crate::{queries::DirectMessage, utils::RoomMessage};
 use lapin::{
     BasicProperties, Channel, Connection,
     options::{BasicPublishOptions, ConfirmSelectOptions, QueueDeclareOptions},
@@ -41,10 +43,10 @@ impl MessagePublisher {
         })
     }
 
-    pub async fn publish_message(
-        &self,
-        message: &SerializableDirectMessage,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn publish_message<T>(&self, message: &T) -> Result<(), Box<dyn Error + Send + Sync>>
+    where
+        T: Serialize,
+    {
         let payload = serde_json::to_vec(message)?;
 
         let confirm = self
@@ -119,6 +121,39 @@ impl From<SerializableDirectMessage> for DirectMessage {
             recipient_id: sdm.recipient_id,
             message_text: sdm.message_text,
             created_at: CqlTimestamp(sdm.created_at),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SerializableRoomMessage {
+    pub room_id: String,
+    pub message_id: Uuid,
+    pub from: i32,
+    pub content: String,
+    pub created_at: i64,
+}
+
+impl From<RoomMessage> for SerializableRoomMessage {
+    fn from(rm: RoomMessage) -> Self {
+        Self {
+            room_id: rm.room_id,
+            message_id: rm.message_id,
+            from: rm.from,
+            content: rm.content,
+            created_at: rm.created_at.0,
+        }
+    }
+}
+
+impl From<SerializableRoomMessage> for RoomMessage {
+    fn from(srm: SerializableRoomMessage) -> Self {
+        Self {
+            room_id: srm.room_id,
+            message_id: srm.message_id,
+            from: srm.from,
+            content: srm.content,
+            created_at: CqlTimestamp(srm.created_at),
         }
     }
 }

@@ -1,6 +1,8 @@
 use scylla::{client::session::Session, value::CqlTimestamp};
 use uuid::Uuid;
 
+use crate::utils::RoomMessage;
+
 pub struct DirectMessage {
     pub conversation_id: String,
     pub message_id: Uuid,
@@ -9,6 +11,7 @@ pub struct DirectMessage {
     pub message_text: String,
     pub created_at: CqlTimestamp,
 }
+
 
 pub async fn fetch_user_conversations(
     session: &Session,
@@ -98,6 +101,56 @@ pub async fn fetch_paginated_messages(
     Ok(messages)
 }
 
+pub async fn fetch_paginated_room_messages(
+    session: &Session,
+    room_id: &str,
+    cursor: Option<Uuid>,
+) -> Result<Vec<RoomMessage>, Box<dyn std::error::Error>> {
+    // Define queries
+    let query_without_cursor = "SELECT room_id, message_id, from, content, created_at \
+                                FROM affinity.room_messages \
+                                WHERE room_id = ? \
+                                ORDER BY message_id DESC \
+                                LIMIT 50";
+
+    let query_with_cursor = "SELECT room_id, message_id, from, content, created_at \
+                             FROM affinity.room_messages \
+                             WHERE room_id = ? AND message_id < ? \
+                             ORDER BY message_id DESC \
+                             LIMIT 50";
+
+    // Execute query
+    let result = match cursor {
+        Some(message_id) => {
+            session
+                .query_unpaged(query_with_cursor, (room_id, message_id))
+                .await?
+        }
+        None => {
+            session
+                .query_unpaged(query_without_cursor, (room_id,))
+                .await?
+        }
+    };
+
+    let rows_result = result.into_rows_result()?;
+    let typed_rows = rows_result.rows::<(String, Uuid, i32, String, CqlTimestamp)>()?;
+
+    let mut messages = Vec::new();
+    for row_result in typed_rows {
+        let (rm_id, msg_id, frm, cnt, created_at) = row_result?;
+        messages.push(RoomMessage {
+            room_id: rm_id,
+            message_id: msg_id,
+            from: frm,
+            content: cnt,
+            created_at,
+        });
+    }
+
+    Ok(messages)
+}
+
 pub fn create_dm(
     sender_id: i32,
     recipient_id: i32,
@@ -128,6 +181,29 @@ pub fn create_dm(
         sender_id,
         recipient_id,
         message_text,
+        created_at,
+    })
+}
+
+pub fn create_room_message(
+    room_id: String,
+    from: i32,
+    content: String,
+    message_id: &str,
+    timestamp: i64,
+) -> Result<RoomMessage, Box<dyn std::error::Error>> {
+    let message_id = match Uuid::parse_str(message_id) {
+        Ok(uuid) => uuid,
+        Err(e) => return Err(Box::new(e)),
+    };
+
+    let created_at = CqlTimestamp(timestamp);
+
+    Ok(RoomMessage {
+        room_id,
+        message_id,
+        from,
+        content,
         created_at,
     })
 }
