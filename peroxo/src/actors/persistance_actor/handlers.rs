@@ -327,4 +327,99 @@ impl PersistenceActor {
             has_more,
         })
     }
+
+    #[cfg(feature = "persistence")]
+    pub async fn handle_persist_room_message(
+        &mut self,
+        room_id: String,
+        sender_id: i32,
+        message_content: String,
+        message_id: uuid::Uuid,
+        timestamp: i64,
+    ) -> Result<(), String> {
+        match self
+            .write_room_message_with_retry(
+                room_id.clone(),
+                sender_id,
+                message_content,
+                message_id,
+                timestamp,
+                3,
+            )
+            .await
+        {
+            Ok(response) => {
+                let write_room_response = response.into_inner();
+                if write_room_response.success {
+                    debug!(
+                        "Successfully persisted room message from {} in room {}",
+                        sender_id, room_id
+                    );
+                    Ok(())
+                } else {
+                    error!(
+                        "Failed to persist room message: {}",
+                        write_room_response.error_message
+                    );
+                    Err(write_room_response.error_message)
+                }
+            }
+            Err(e) => {
+                error!("gRPC call failed: {}", e);
+                Err(format!("gRPC call failed: {}", e))
+            }
+        }
+    }
+
+    #[cfg(feature = "persistence")]
+    pub async fn write_room_message_with_retry(
+        &mut self,
+        room_id: String,
+        sender_id: i32,
+        message_content: String,
+        message_id: uuid::Uuid,
+        timestamp: i64,
+        max_retries: u32,
+    ) -> Result<tonic::Response<crate::actors::chat_service::WriteRoomMessageResponse>, tonic::Status>
+    {
+        let mut attempts = 0;
+        let mut last_error = None;
+
+        while attempts <= max_retries {
+            use crate::actors::chat_service::WriteRoomMessageRequest;
+            use tonic::Request;
+
+            let request = Request::new(WriteRoomMessageRequest {
+                room_id: room_id.clone(),
+                from: sender_id,
+                content: message_content.clone(),
+                message_id: message_id.to_string(),
+                timestamp,
+            });
+
+            match self.chat_service_client.write_room_message(request).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    attempts += 1;
+                    last_error = Some(e);
+
+                    if attempts <= max_retries {
+                        use tracing::warn;
+
+                        let delay = std::time::Duration::from_millis(100 * attempts as u64);
+                        warn!(
+                            "gRPC call failed (attempt {}/{}), retrying in {:?}: {}",
+                            attempts,
+                            max_retries + 1,
+                            delay,
+                            last_error.as_ref().unwrap()
+                        );
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
+    }
 }

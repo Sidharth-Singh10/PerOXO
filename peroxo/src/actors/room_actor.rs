@@ -107,10 +107,14 @@ impl RoomActor {
                     #[allow(unused_variables)]
                     respond_to,
                 } => {
-                    self.handle_send_message(from, content, message_id, 
+                    self.handle_send_message(
+                        from,
+                        content,
+                        message_id,
                         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-                        respond_to)
-                        .await;
+                        respond_to,
+                    )
+                    .await;
                 }
                 RoomMessage::GetMembers { respond_to } => {
                     let members: Vec<i32> = self.members.lock().await.keys().copied().collect();
@@ -158,8 +162,9 @@ impl RoomActor {
         from: i32,
         content: String,
         message_id: Uuid,
-        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        respond_to: Option<oneshot::Sender<MessageAckResponse>>,
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))] respond_to: Option<
+            oneshot::Sender<MessageAckResponse>,
+        >,
     ) {
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
         {
