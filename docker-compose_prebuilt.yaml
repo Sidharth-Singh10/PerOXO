@@ -44,8 +44,7 @@ services:
 
   chat-service:
     build:
-      context: ./chat-service
-      dockerfile: Dockerfile
+      image: sidharthsingh7/per_oxo_chat_service
     container_name: chat-service
     ports:
       - "50052:50052"
@@ -64,26 +63,9 @@ services:
     networks:
       - chat_network
 
-  # user-service:
-  #   build:
-  #     context: ./user-service
-  #     dockerfile: Dockerfile
-  #   container_name: user-service
-  #   ports:
-  #     - "50053:50053"
-  #   environment:
-  #     - RUST_LOG=info
-  #     - GRPC_ADDR=[::]:50053
-  #     - DATABASE_URL=XXXXXXXXXXXXXXXXXXXXXX
-  #   networks:
-  #     - chat_network
-  #   healthcheck:
-  #     test: ["CMD", "grpc_health_probe", "-addr=localhost:50053"]
-
   per-oxo:
     build:
-      context: ./peroxo
-      dockerfile: Dockerfile
+      image: sidharthsingh7/per_oxo:persistence
     container_name: per-oxo
     ports:
       - "50051:50051"
@@ -105,8 +87,7 @@ services:
 
   rabbit-consumer:
     build:
-      context: ./rabbit_consumer
-      dockerfile: Dockerfile
+    image: sidharthsingh7/per_oxo_rabbit_consumer
     container_name: rabbit-consumer
     environment:
       - RUST_LOG=info
@@ -120,6 +101,22 @@ services:
     
     networks:
       - chat_network
+  
+  # user-service:
+  #   build:
+  #     context: ./user-service
+  #     dockerfile: Dockerfile
+  #   container_name: user-service
+  #   ports:
+  #     - "50053:50053"
+  #   environment:
+  #     - RUST_LOG=info
+  #     - GRPC_ADDR=[::]:50053
+  #     - DATABASE_URL=XXXXXXXXXXXXXXXXXXXXXX
+  #   networks:
+  #     - chat_network
+  #   healthcheck:
+  #     test: ["CMD", "grpc_health_probe", "-addr=localhost:50053"]
 
 volumes:
   scylla_data:
