@@ -78,14 +78,23 @@ impl PersistenceActor {
                     let _ = respond_to.send(result);
                 }
                 PersistenceMessage::PersistRoomMessage {
-                    room_id: _,
-                    sender_id: _,
-                    message_content: _,
-                    message_id: _,
-                    timestamp: _,
-                    respond_to: _,
+                    room_id,
+                    sender_id,
+                    message_content,
+                    message_id,
+                    timestamp,
+                    respond_to,
                 } => {
-                    info!("PersistRoomMessage is not yet implemented");
+                    let result = self
+                        .handle_persist_room_message(
+                            room_id,
+                            sender_id,
+                            message_content,
+                            message_id,
+                            timestamp,
+                        )
+                        .await;
+                    let _ = respond_to.send(result);
                 }
             }
         }
