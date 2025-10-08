@@ -69,6 +69,7 @@ impl DatabaseMigrations {
     async fn create_tables(&self) -> Result<(), Box<dyn Error>> {
         self.create_direct_messages_table().await?;
         self.create_user_conversations_table().await?;
+        self.create_room_messages_table().await?;
 
         Ok(())
     }
@@ -107,6 +108,24 @@ impl DatabaseMigrations {
         let prepared = self.session.prepare(query).await?;
         self.session.execute_unpaged(&prepared, &[]).await?;
         println!("Table 'user_conversations' created successfully");
+        Ok(())
+    }
+    async fn create_room_messages_table(&self) -> Result<(), Box<dyn Error>> {
+        let query = r#"
+        CREATE TABLE IF NOT EXISTS room_messages (
+            room_id text,
+            message_id uuid,
+            sender_id int,
+            content text,
+            created_at timestamp,
+            PRIMARY KEY ((room_id), message_id)
+        ) WITH CLUSTERING ORDER BY (message_id ASC)
+        "#;
+
+        println!("Creating table 'room_messages'...");
+        let prepared = self.session.prepare(query).await?;
+        self.session.execute_unpaged(&prepared, &[]).await?;
+        println!("Table 'room_messages' created successfully");
         Ok(())
     }
 
