@@ -4,24 +4,25 @@ use lapin::{
     options::{BasicAckOptions, BasicConsumeOptions, BasicQosOptions, QueueDeclareOptions},
     types::FieldTable,
 };
-use scylla::{client::session::Session, value::CqlTimestamp};
-use serde::{Deserialize, Serialize};
+
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
-use crate::scylla_db::{DirectMessage, write_direct_message};
-
-pub struct MessageConsumer {
-    channel: Channel,
-    session: Session,
-    queue_name: String,
+#[async_trait::async_trait]
+pub trait MessageHandler: Send + Sync {
+    async fn process_message(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-impl MessageConsumer {
+pub struct MessageConsumer<H: MessageHandler> {
+    channel: Channel,
+    queue_name: String,
+    handler: H,
+}
+
+impl<H: MessageHandler> MessageConsumer<H> {
     pub async fn new(
         rabbitmq_connection: &Connection,
-        scylla_session: Session,
         queue_name: String,
+        handler: H,
     ) -> lapin::Result<Self> {
         let channel = rabbitmq_connection.create_channel().await?;
 
@@ -42,8 +43,8 @@ impl MessageConsumer {
 
         Ok(Self {
             channel,
-            session: scylla_session,
             queue_name,
+            handler,
         })
     }
 
@@ -57,7 +58,7 @@ impl MessageConsumer {
             .channel
             .basic_consume(
                 &self.queue_name,
-                "dm_consumer",
+                format!("{}_consumer", self.queue_name).as_str(),
                 BasicConsumeOptions::default(),
                 FieldTable::default(),
             )
@@ -66,9 +67,9 @@ impl MessageConsumer {
         while let Some(delivery_result) = consumer.next().await {
             match delivery_result {
                 Ok(delivery) => {
-                    match self.process_message(&delivery.data).await {
+                    match self.handler.process_message(&delivery.data).await {
                         Ok(_) => {
-                            info!("Successfully processed message");
+                            info!("Successfully processed message for queue: {}", self.queue_name);
                             // Acknowledge the message
                             if let Err(e) = delivery.ack(BasicAckOptions::default()).await {
                                 error!("Failed to acknowledge message: {}", e);
@@ -94,63 +95,5 @@ impl MessageConsumer {
 
         warn!("Consumer ended");
         Ok(())
-    }
-
-    async fn process_message(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        // Deserialize the message
-        let serializable_message: SerializableDirectMessage = serde_json::from_slice(data)?;
-
-        info!(
-            "Processing message: {} from {} to {}",
-            serializable_message.message_id,
-            serializable_message.sender_id,
-            serializable_message.recipient_id
-        );
-
-        // Convert to DirectMessage
-        let direct_message: DirectMessage = serializable_message.into();
-
-        // Write to ScyllaDB using your existing function
-        write_direct_message(&self.session, direct_message)
-            .await
-            .unwrap();
-
-        Ok(())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct SerializableDirectMessage {
-    pub conversation_id: String,
-    pub message_id: Uuid,
-    pub sender_id: i32,
-    pub recipient_id: i32,
-    pub message_text: String,
-    pub created_at: i64,
-}
-
-impl From<DirectMessage> for SerializableDirectMessage {
-    fn from(dm: DirectMessage) -> Self {
-        Self {
-            conversation_id: dm.conversation_id,
-            message_id: dm.message_id,
-            sender_id: dm.sender_id,
-            recipient_id: dm.recipient_id,
-            message_text: dm.message_text,
-            created_at: dm.created_at.0,
-        }
-    }
-}
-
-impl From<SerializableDirectMessage> for DirectMessage {
-    fn from(sdm: SerializableDirectMessage) -> Self {
-        Self {
-            conversation_id: sdm.conversation_id,
-            message_id: sdm.message_id,
-            sender_id: sdm.sender_id,
-            recipient_id: sdm.recipient_id,
-            message_text: sdm.message_text,
-            created_at: CqlTimestamp(sdm.created_at),
-        }
     }
 }
