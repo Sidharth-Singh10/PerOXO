@@ -8,9 +8,10 @@ use scylla::{
 use std::env;
 use tracing::info;
 
-use crate::dm_consumer::MessageConsumer;
-mod dm_consumer;
-mod scylla_db;
+use crate::{direct_message::DirectMessageHandler, message_handler::MessageConsumer};
+mod direct_message;
+mod message_handler;
+mod room;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,11 +46,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Connected to ScyllaDB");
 
-    // Create consumer
-    let consumer = MessageConsumer::new(&rabbitmq_connection, scylla_session, queue_name).await?;
+    let dm_handler = DirectMessageHandler {
+        session: &scylla_session,
+    };
+    let room_handler = room::RoomMessageHandler {
+        session: &scylla_session,
+    };
 
-    // Start consuming messages
-    consumer.start_consuming().await?;
+    // Create consumer
+    let dm_consumer = MessageConsumer::new(
+        &rabbitmq_connection,
+        "direct_messages".to_string(),
+        dm_handler,
+    )
+    .await?;
+
+    let room_consumer = MessageConsumer::new(
+        &rabbitmq_connection,
+        "room_messages".to_string(),
+        room_handler,
+    )
+    .await?;
+
+    let _ = tokio::join!(
+        dm_consumer.start_consuming(),
+        room_consumer.start_consuming(),
+    );
 
     Ok(())
 }
