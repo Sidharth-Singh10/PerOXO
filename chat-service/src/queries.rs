@@ -12,7 +12,6 @@ pub struct DirectMessage {
     pub created_at: CqlTimestamp,
 }
 
-
 pub async fn fetch_user_conversations(
     session: &Session,
     user_id: i32,
@@ -144,6 +143,39 @@ pub async fn fetch_paginated_room_messages(
             message_id: msg_id,
             from: frm,
             content: cnt,
+            created_at,
+        });
+    }
+
+    Ok(messages)
+}
+
+pub async fn fetch_messages_after(
+    session: &Session,
+    conversation_id: &str,
+    after_message_id: Uuid,
+) -> Result<Vec<DirectMessage>, Box<dyn std::error::Error>> {
+    let query = "SELECT conversation_id, message_id, sender_id, recipient_id, message_text, created_at \
+                 FROM affinity.direct_messages \
+                 WHERE conversation_id = ? AND message_id > ? \
+                 ORDER BY message_id ASC";
+
+    let result = session
+        .query_unpaged(query, (conversation_id, after_message_id))
+        .await?;
+
+    let rows_result = result.into_rows_result()?;
+    let typed_rows = rows_result.rows::<(String, Uuid, i32, i32, String, CqlTimestamp)>()?;
+
+    let mut messages = Vec::new();
+    for row_result in typed_rows {
+        let (conv_id, msg_id, sender_id, recipient_id, msg_text, created_at) = row_result?;
+        messages.push(DirectMessage {
+            conversation_id: conv_id,
+            message_id: msg_id,
+            sender_id,
+            recipient_id,
+            message_text: msg_text,
             created_at,
         });
     }

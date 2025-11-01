@@ -22,6 +22,9 @@ service ChatService {
   // Get paginated messages for a room
   rpc GetPaginatedRoomMessages(GetPaginatedRoomMessagesRequest)
       returns (GetPaginatedRoomMessagesResponse);
+
+  rpc SyncMessages(SyncMessagesRequest) 
+      returns (SyncMessagesResponse);
 }
 
 message WriteDMRequest {
@@ -119,4 +122,15 @@ message GetPaginatedRoomMessagesResponse {
   string error_message = 2;
   repeated RoomMessage messages = 3;
   string next_cursor = 4;
+}
+
+message SyncMessagesRequest {
+  string conversation_id = 1;
+  string last_message_id = 2; 
+}
+
+message SyncMessagesResponse {
+  bool success = 1;
+  string error_message = 2;
+  repeated DirectMessage messages = 3;
 }

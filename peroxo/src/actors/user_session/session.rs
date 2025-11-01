@@ -216,6 +216,39 @@ impl UserSession {
                         }
                     }
 
+                    #[cfg(feature = "persistence")]
+                    Ok(ChatMessage::SyncMessages {
+                        conversation_id,
+                        message_id,
+                    }) => {
+                        let (respond_to, response) = oneshot::channel();
+                        let router_msg = RouterMessage::SyncMessages {
+                            conversation_id,
+                            message_id,
+                            respond_to,
+                        };
+
+                        if router_sender_clone.send(router_msg).is_err() {
+                            error!("Failed to send sync messages request to router");
+                        } else {
+                            let ack_sender_clone = ack_sender.clone();
+                            tokio::spawn(async move {
+                                match response.await {
+                                    Ok(Ok(messages)) => {
+                                        let response_msg =
+                                            ChatMessage::SyncMessagesResponse { messages };
+                                        let _ = ack_sender_clone.send(response_msg).await;
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!("Failed to sync messages: {}", e);
+                                    }
+                                    Err(_) => {
+                                        error!("Sync messages request timeout");
+                                    }
+                                }
+                            });
+                        }
+                    }
                     Ok(_) => {
                         // Ignore other message types from clients for now
                     }

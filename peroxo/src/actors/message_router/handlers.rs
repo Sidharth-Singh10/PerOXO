@@ -145,18 +145,6 @@ impl MessageRouter {
         }
     }
 
-    // async fn broadcast_presence_update(&self, user_id: i32, status: PresenceStatus) {
-    //     let message = ChatMessage::Presence {
-    //         user: user_id,
-    //         status,
-    //     };
-
-    //     for sender in self.users.values() {
-    //         // Use try_send for presence updates to avoid blocking
-    //         let _ = sender.try_send(message.clone());
-    //     }
-    // }
-
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     pub async fn handle_get_paginated_chat_history(
         &self,
@@ -308,6 +296,41 @@ impl MessageRouter {
             });
         } else {
             let _ = respond_to.send(None);
+        }
+    }
+
+    #[cfg(feature = "persistence")]
+    pub async fn handle_sync_messages(
+        &self,
+        conversation_id: String,
+        message_id: uuid::Uuid,
+        respond_to: oneshot::Sender<Result<Vec<crate::chat::ResponseDirectMessage>, String>>,
+    ) {
+        if let Some(persistence_sender) = &self.persistence_sender {
+            let (persist_respond_to, persist_response) = oneshot::channel();
+            let persist_msg = PersistenceMessage::SyncMessages {
+                conversation_id,
+                message_id,
+                respond_to: persist_respond_to,
+            };
+
+            if persistence_sender.send(persist_msg).is_err() {
+                let _ = respond_to.send(Err("Failed to communicate with persistence".to_string()));
+                return;
+            }
+
+            tokio::spawn(async move {
+                match persist_response.await {
+                    Ok(result) => {
+                        let _ = respond_to.send(result);
+                    }
+                    Err(_) => {
+                        let _ = respond_to.send(Err("Persistence timeout".to_string()));
+                    }
+                }
+            });
+        } else {
+            let _ = respond_to.send(Err("Persistence not available".to_string()));
         }
     }
 }

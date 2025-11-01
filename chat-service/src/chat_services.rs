@@ -9,9 +9,12 @@ use crate::chat_service::GetPaginatedMessagesResponse;
 use crate::chat_service::GetPaginatedRoomMessagesRequest;
 use crate::chat_service::GetPaginatedRoomMessagesResponse;
 use crate::chat_service::RoomMessage;
+use crate::chat_service::SyncMessagesRequest;
+use crate::chat_service::SyncMessagesResponse;
 use crate::chat_service::WriteRoomMessageRequest;
 use crate::chat_service::WriteRoomMessageResponse;
 use crate::queries::create_room_message;
+use crate::queries::fetch_messages_after;
 use crate::queries::fetch_paginated_room_messages;
 use crate::rabbit::SerializableRoomMessage;
 use crate::{
@@ -325,6 +328,55 @@ impl ChatService for ChatServiceImpl {
                     error_message: e.to_string(),
                     messages: Vec::new(),
                     next_cursor: String::new(),
+                };
+                Ok(Response::new(response))
+            }
+        }
+    }
+
+    async fn sync_messages(
+        &self,
+        request: Request<SyncMessagesRequest>,
+    ) -> Result<Response<SyncMessagesResponse>, Status> {
+        let req = request.into_inner();
+
+        let last_message_id = match Uuid::parse_str(&req.last_message_id) {
+            Ok(uuid) => uuid,
+            Err(_) => {
+                return Ok(Response::new(SyncMessagesResponse {
+                    success: false,
+                    error_message: "Invalid last_message_id".to_string(),
+                    messages: Vec::new(),
+                }));
+            }
+        };
+
+        match fetch_messages_after(&self.session, &req.conversation_id, last_message_id).await {
+            Ok(messages_data) => {
+                let messages: Vec<DirectMessage> = messages_data
+                    .into_iter()
+                    .map(|m| DirectMessage {
+                        conversation_id: m.conversation_id,
+                        message_id: m.message_id.to_string(),
+                        sender_id: m.sender_id,
+                        recipient_id: m.recipient_id,
+                        message_text: m.message_text,
+                        created_at: m.created_at.0,
+                    })
+                    .collect();
+
+                let response = SyncMessagesResponse {
+                    success: true,
+                    error_message: String::new(),
+                    messages,
+                };
+                Ok(Response::new(response))
+            }
+            Err(e) => {
+                let response = SyncMessagesResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                    messages: Vec::new(),
                 };
                 Ok(Response::new(response))
             }

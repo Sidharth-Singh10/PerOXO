@@ -96,6 +96,18 @@ impl PersistenceActor {
                         .await;
                     let _ = respond_to.send(result);
                 }
+
+                PersistenceMessage::SyncMessages {
+                    conversation_id,
+                    message_id,
+                    respond_to,
+                } => {
+                    #[cfg(feature = "persistence")]
+                    {
+                        let result = self.handle_sync_messages(conversation_id, message_id).await;
+                        let _ = respond_to.send(result);
+                    }
+                }
             }
         }
 

@@ -13,7 +13,14 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let state = match PerOxoStateBuilder::new().build().await {
+    // let state = MongoDbConfig::new("REMOVED_SECRET").with_database_name("affinity");
+    let chat_service_addr = std::env::var("CHAT_SERVICE_ADDR").unwrap();
+    let state = match PerOxoStateBuilder::new()
+        // .with_mongo_config(state)
+        .with_persistence_connection_url(chat_service_addr)
+        .build()
+        .await
+    {
         Ok(state) => state,
         Err(e) => {
             tracing::error!("Failed to build PerOxoState: {:?}", e);

@@ -46,6 +46,16 @@ pub enum ChatMessage {
     LeaveRoom {
         room_id: String,
     },
+
+    #[cfg(feature = "persistence")]
+    SyncMessages {
+        conversation_id: String,
+        message_id: uuid::Uuid,
+    },
+    #[cfg(feature = "persistence")]
+    SyncMessagesResponse {
+        messages: Vec<ResponseDirectMessage>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

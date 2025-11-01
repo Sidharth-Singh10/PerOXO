@@ -25,4 +25,10 @@ pub enum PersistenceMessage {
         timestamp: i64,
         respond_to: oneshot::Sender<Result<(), String>>,
     },
+    // the idea is to return a list of messages after the given message id
+    SyncMessages {
+        conversation_id: String,
+        message_id: uuid::Uuid,
+        respond_to: oneshot::Sender<Result<Vec<crate::chat::ResponseDirectMessage>, String>>,
+    },
 }

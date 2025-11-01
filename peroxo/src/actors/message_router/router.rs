@@ -108,6 +108,15 @@ impl MessageRouter {
                 } => {
                     self.handle_get_room_members(room_id, respond_to).await;
                 }
+                #[cfg(feature = "persistence")]
+                RouterMessage::SyncMessages {
+                    conversation_id,
+                    message_id,
+                    respond_to,
+                } => {
+                    self.handle_sync_messages(conversation_id, message_id, respond_to)
+                        .await;
+                }
             }
         }
 

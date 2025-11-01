@@ -51,4 +51,11 @@ pub enum RouterMessage {
         room_id: String,
         respond_to: oneshot::Sender<Option<Vec<i32>>>,
     },
+
+    #[cfg(feature = "persistence")]
+    SyncMessages {
+        conversation_id: String,
+        message_id: uuid::Uuid,
+        respond_to: oneshot::Sender<Result<Vec<crate::chat::ResponseDirectMessage>, String>>,
+    },
 }

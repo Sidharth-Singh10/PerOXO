@@ -422,4 +422,54 @@ impl PersistenceActor {
 
         Err(last_error.unwrap())
     }
+
+    #[cfg(feature = "persistence")]
+    pub async fn handle_sync_messages(
+        &mut self,
+        conversation_id: String,
+        message_id: uuid::Uuid,
+    ) -> Result<Vec<crate::chat::ResponseDirectMessage>, String> {
+        use crate::actors::chat_service::SyncMessagesRequest;
+        use tonic::Request;
+
+        let request = Request::new(SyncMessagesRequest {
+            conversation_id: conversation_id.clone(),
+            last_message_id: message_id.to_string(),
+        });
+
+        match self.chat_service_client.sync_messages(request).await {
+            Ok(response) => {
+                let sync_response = response.into_inner();
+                if sync_response.success {
+                    let messages: Vec<crate::chat::ResponseDirectMessage> = sync_response
+                        .messages
+                        .into_iter()
+                        .map(|msg| crate::chat::ResponseDirectMessage {
+                            conversation_id: msg.conversation_id,
+                            message_id: uuid::Uuid::parse_str(&msg.message_id)
+                                .unwrap_or_else(|_| uuid::Uuid::new_v4()),
+                            sender_id: msg.sender_id,
+                            recipient_id: msg.recipient_id,
+                            message_text: msg.message_text,
+                            created_at: msg.created_at,
+                        })
+                        .collect();
+
+                    debug!(
+                        "Successfully synced {} messages for conversation {}",
+                        messages.len(),
+                        conversation_id
+                    );
+                    Ok(messages)
+                } else {
+                    error!("Failed to sync messages: {}", sync_response.error_message);
+                    Err(sync_response.error_message)
+                }
+            }
+            Err(e) => {
+                error!("gRPC call failed: {}", e);
+                Err(format!("gRPC call failed: {}", e))
+            }
+        }
+    }
 }
