@@ -1,0 +1,38 @@
+name: Build and Push Docker Images
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          
+      - name: Build and push Chat Service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./chat-service
+          push: true
+          tags: sidharthsingh7/per_oxo_chat_service:latest
+          
+      - name: Build and push Peroxo (Persistence) image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./peroxo
+          push: true
+          tags: sidharthsingh7/per_oxo:persistence
+
+      - name: Build and push Rabbit Consumer image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./rabbit_consumer
+          push: true
+          tags: sidharthsingh7/per_oxo_rabbit_consumer:latest
