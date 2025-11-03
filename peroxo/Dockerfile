@@ -1,7 +1,5 @@
 FROM rust:latest as builder
 
-ARG FEATURES=""
-
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     pkg-config \
@@ -17,11 +15,8 @@ COPY proto ./proto
 
 COPY build.rs ./
 
-RUN if [ -z "$FEATURES" ]; then \
-      cargo build --release; \
-    else \
-      cargo build --release --features "$FEATURES"; \
-    fi
+ARG FEATURES
+RUN cargo build --release --features "${FEATURES}"
 
 FROM debian:bookworm-slim
 

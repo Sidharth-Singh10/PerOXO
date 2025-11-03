@@ -64,21 +64,6 @@ services:
     networks:
       - chat_network
 
-  # user-service:
-  #   build:
-  #     context: ./user-service
-  #     dockerfile: Dockerfile
-  #   container_name: user-service
-  #   ports:
-  #     - "50053:50053"
-  #   environment:
-  #     - RUST_LOG=info
-  #     - GRPC_ADDR=[::]:50053
-  #     - DATABASE_URL=XXXXXXXXXXXXXXXXXXXXXX
-  #   networks:
-  #     - chat_network
-  #   healthcheck:
-  #     test: ["CMD", "grpc_health_probe", "-addr=localhost:50053"]
 
   per-oxo:
     build:
@@ -91,13 +76,10 @@ services:
     environment:
       - RUST_LOG=debug
       - GRPC_ADDR=[::]:50051
-      - USER_SERVICE_ADDR=http://user-service:50053
       - CHAT_SERVICE_ADDR=http://chat-service:50052
-      - PER_OXO_SERVICE_ADDR=0.0.0.0:3000
+      - PER_OXO_SERVICE_ADDR=0.0.0.0:3000 
     depends_on:
       chat-service:
-        condition: service_healthy
-      user-service:
         condition: service_healthy
     networks:
       - chat_network
