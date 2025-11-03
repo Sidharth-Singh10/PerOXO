@@ -29,6 +29,8 @@ jobs:
           context: ./peroxo
           push: true
           tags: sidharthsingh7/per_oxo:persistence
+          build-args: |
+            FEATURES=persistence
 
       - name: Build and push Rabbit Consumer image
         uses: docker/build-push-action@v6
