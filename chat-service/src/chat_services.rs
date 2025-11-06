@@ -32,6 +32,7 @@ use uuid::Uuid;
 
 pub struct ChatServiceImpl {
     session: Arc<Session>,
+    queries: Arc<crate::Queries>,
     dm_publisher: Arc<MessagePublisher>,
     room_publisher: Arc<MessagePublisher>,
 }
@@ -39,11 +40,13 @@ pub struct ChatServiceImpl {
 impl ChatServiceImpl {
     pub fn new(
         session: Arc<Session>,
+        queries: Arc<crate::Queries>,
         dm_publisher: Arc<MessagePublisher>,
         room_publisher: Arc<MessagePublisher>,
     ) -> Self {
         Self {
             session,
+            queries,
             dm_publisher,
             room_publisher,
         }
@@ -351,7 +354,14 @@ impl ChatService for ChatServiceImpl {
             }
         };
 
-        match fetch_messages_after(&self.session, &req.conversation_id, last_message_id).await {
+        match fetch_messages_after(
+            &self.session,
+            Arc::clone(&self.queries),
+            &req.conversation_id,
+            last_message_id,
+        )
+        .await
+        {
             Ok(messages_data) => {
                 let messages: Vec<DirectMessage> = messages_data
                     .into_iter()

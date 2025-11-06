@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use scylla::{client::session::Session, value::CqlTimestamp};
 use uuid::Uuid;
 
-use crate::utils::RoomMessage;
+use crate::{Queries, utils::RoomMessage};
 
 pub struct DirectMessage {
     pub conversation_id: String,
@@ -152,19 +154,28 @@ pub async fn fetch_paginated_room_messages(
 
 pub async fn fetch_messages_after(
     session: &Session,
+    queries: Arc<Queries>,
     conversation_id: &str,
     after_message_id: Uuid,
 ) -> Result<Vec<DirectMessage>, Box<dyn std::error::Error>> {
-    let query = "SELECT conversation_id, message_id, sender_id, recipient_id, message_text, created_at \
-                 FROM affinity.direct_messages \
-                 WHERE conversation_id = ? AND message_id > ? \
-                 ORDER BY message_id ASC";
-
-    let result = session
-        .query_unpaged(query, (conversation_id, after_message_id))
+    // 1) get timestamp
+    let res = session
+        .execute_unpaged(&queries.q_get_ts, (conversation_id, after_message_id))
         .await?;
+    let rows = res.into_rows_result()?;
+    let mut typed = rows.rows::<(CqlTimestamp,)>()?;
+    let after_ts = if let Some(row_res) = typed.next() {
+        let (ts,) = row_res?;
+        ts
+    } else {
+        return Ok(Vec::new());
+    };
 
-    let rows_result = result.into_rows_result()?;
+    // 2) fetch messages after timestamp
+    let res2 = session
+        .execute_unpaged(&queries.q_fetch_after_ts, (conversation_id, after_ts))
+        .await?;
+    let rows_result = res2.into_rows_result()?;
     let typed_rows = rows_result.rows::<(String, Uuid, i32, i32, String, CqlTimestamp)>()?;
 
     let mut messages = Vec::new();
@@ -179,7 +190,6 @@ pub async fn fetch_messages_after(
             created_at,
         });
     }
-
     Ok(messages)
 }
 
