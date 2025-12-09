@@ -66,6 +66,12 @@ MessageRouter (central actor)
 - No direct memory sharing between actors
 - Tokio's async runtime handles task scheduling
 
+## Authentication
+if peroxo used as a hosted chat engine as a service (needs improvement)
+![auth](https://github.com/user-attachments/assets/31b4c1a0-ab2a-4676-8cd8-a49ec2ffc6d3)
+
+
+
 ## Notes/References
 
 ![actors](https://github.com/user-attachments/assets/484c5066-9b26-47c4-b1e1-62fdb648f483)
