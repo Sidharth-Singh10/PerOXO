@@ -3,6 +3,7 @@ use rand::distributions::Alphanumeric;
 use redis::Commands;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+
 #[derive(Serialize, Deserialize)]
 pub struct UserToken {
     pub project_id: String,
@@ -32,7 +33,7 @@ pub async fn store_user_token(
     let expires_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_secs() as u64
+        .as_secs()
         + ttl_secs;
 
     let payload = UserToken {
@@ -76,7 +77,7 @@ pub async fn verify_user_token(
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_secs() as u64;
+        .as_secs();
 
     if now > parsed.expires_at {
         return Ok(None);
