@@ -127,14 +127,13 @@ impl UserSession {
                         from,
                         to,
                         content,
-                        message_id,
+                        message_id: _,
                     }) => {
                         if let Err(e) = handlers::handle_direct_message(
                             user_id_clone,
                             from,
                             to,
                             content,
-                            message_id,
                             &router_sender_clone,
                             &ack_sender,
                         )

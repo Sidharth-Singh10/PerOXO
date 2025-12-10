@@ -8,7 +8,7 @@ pub enum ChatMessage {
         from: i32,
         to: i32,
         content: String,
-        message_id: uuid::Uuid,
+        message_id: Option<uuid::Uuid>,
     },
     // Presence update (user online/offline)
     Presence {

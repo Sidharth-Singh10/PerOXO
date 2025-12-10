@@ -122,7 +122,7 @@ impl MessageRouter {
                 from,
                 to,
                 content,
-                message_id,
+                message_id: Some(message_id),
             };
 
             // Use try_send to avoid blocking if the recipient's channel is full

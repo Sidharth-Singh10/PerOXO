@@ -1,4 +1,4 @@
-use crate::actors::message_router::RouterMessage;
+use crate::actors::{message_router::RouterMessage, uuid_util::NODE_ID};
 use crate::chat::ChatMessage;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, warn};
@@ -9,7 +9,6 @@ pub async fn handle_direct_message(
     from: i32,
     to: i32,
     content: String,
-    message_id: Uuid,
     router_sender: &mpsc::UnboundedSender<RouterMessage>,
     ack_sender: &mpsc::Sender<ChatMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -19,6 +18,8 @@ pub async fn handle_direct_message(
     }
 
     let (respond_to, response) = oneshot::channel();
+
+    let message_id = Uuid::now_v1(&NODE_ID);
 
     let router_msg = RouterMessage::SendDirectMessage {
         from,
