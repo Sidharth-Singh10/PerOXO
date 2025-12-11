@@ -1,5 +1,6 @@
 use crate::actors::{message_router::RouterMessage, uuid_util::NODE_ID};
 use crate::chat::ChatMessage;
+use crate::metrics::Metrics;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, warn};
 use uuid::Uuid;
@@ -12,6 +13,7 @@ pub async fn handle_direct_message(
     router_sender: &mpsc::UnboundedSender<RouterMessage>,
     ack_sender: &mpsc::Sender<ChatMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    Metrics::websocket_message_received();
     if from != user_id {
         warn!("User {} attempted to spoof message from {}", user_id, from);
         return Ok(()); // Not an error, just invalid input

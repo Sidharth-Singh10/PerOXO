@@ -1,16 +1,22 @@
 use axum::{
     Router,
     extract::{Query, State, WebSocketUpgrade},
+    middleware,
     response::IntoResponse,
-    routing::any,
+    routing::{any, get},
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{socket::dm_socket, state::PerOxoState};
+use crate::{
+    metrics::{metrics_handler, metrics_middleware},
+    socket::dm_socket,
+    state::PerOxoState,
+};
 
 pub mod actors;
 pub mod chat;
 pub mod connections;
+pub mod metrics;
 #[cfg(feature = "mongo_db")]
 pub mod mongo_db;
 pub mod socket;
@@ -32,5 +38,7 @@ async fn ws_handler(
 pub fn peroxo_route(state: Arc<PerOxoState>) -> Router {
     Router::new()
         .route("/ws", any(ws_handler))
+        .route("/metrics", get(metrics_handler))
+        .layer(middleware::from_fn(metrics_middleware))
         .with_state(state)
 }

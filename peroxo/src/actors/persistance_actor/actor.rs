@@ -5,6 +5,7 @@ use super::messages::PersistenceMessage;
 
 #[cfg(feature = "persistence")]
 use crate::actors::chat_service::chat_service_client::ChatServiceClient;
+use crate::metrics::Metrics;
 #[cfg(feature = "persistence")]
 use tonic::transport::Channel;
 
@@ -64,6 +65,8 @@ impl PersistenceActor {
                             timestamp,
                         )
                         .await;
+
+                    Metrics::websocket_message_persisted();
 
                     let _ = respond_to.send(result);
                 }

@@ -1,5 +1,6 @@
 use crate::actors::{message_router::RouterMessage, user_session::handlers};
 use crate::chat::ChatMessage;
+use crate::metrics::Metrics;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
@@ -81,6 +82,7 @@ impl UserSession {
                                             );
                                             break;
                                         }
+                                        Metrics::websocket_message_sent();
                                     }
                                     Err(e) => {
                                         error!("Failed to serialize message for {}: {}", user_id_clone, e);
@@ -273,6 +275,8 @@ impl UserSession {
         // Unregister from router
         let unregister_msg = RouterMessage::UnregisterUser { user_id };
         let _ = router_sender.send(unregister_msg);
+
+        Metrics::websocket_disconnected();
 
         debug!("User session ended for {}", user_id);
     }

@@ -1,0 +1,20 @@
+global:  
+  scrape_interval: 5s  
+  evaluation_interval: 30s
+  
+scrape_configs:  
+  - job_name: per-oxo
+    honor_labels: true
+    static_configs:  
+      - targets: ['per-oxo:3000']  
+    metrics_path: /metrics  
+      
+  # - job_name: 'chat-service'  
+  #   static_configs:  
+  #     - targets: ['chat-service:50052']  
+  #   metrics_path: /metrics  
+      
+  # - job_name: 'rabbitmq'  
+  #   static_configs:  
+  #     - targets: ['rabbitmq:15692']  
+  #   metrics_path: /metrics

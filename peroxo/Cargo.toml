@@ -14,7 +14,7 @@ path = "src/main.rs"
 name = "per_oxo"
 
 [features]
-default = []
+default = ["persistence"]
 persistence = []
 mongo_db = ["mongodb"] 
 
@@ -33,6 +33,7 @@ dotenv = "0.15.0"
 uuid = { version = "1.17.0", features = ["serde", "v4", "v1"] }
 chrono = "0.4.41"
 mongodb = { version = "3.3.0", optional = true }
+prometheus = "0.14.0"
 
 [build-dependencies]
 tonic-build = "0.13.0"
