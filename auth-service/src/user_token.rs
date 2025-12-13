@@ -3,6 +3,7 @@ use rand::distributions::Alphanumeric;
 use redis::Commands;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{debug, info, instrument, warn};
 
 #[derive(Serialize, Deserialize)]
 pub struct UserToken {
@@ -21,6 +22,7 @@ fn generate_token() -> String {
     format!("pxtok_{}", rand_string)
 }
 
+#[instrument(skip(redis_client))]
 pub async fn store_user_token(
     redis_client: &redis::Client,
     project_id: &str,
@@ -49,14 +51,18 @@ pub async fn store_user_token(
 
     let _: () = con.set_ex(key, json_value, ttl_secs)?;
 
+    info!(token = ?key, project_id = %project_id, user_id = %user_id, "stored token in redis");
+
     Ok(token)
 }
 
+#[instrument(skip(redis_client))]
 pub async fn verify_user_token(
     redis_client: &redis::Client,
     token: &str,
 ) -> Result<Option<UserToken>, Box<dyn std::error::Error>> {
     if !token.starts_with("pxtok_") {
+        warn!(token = ?token, "invalid token format");
         return Ok(None);
     }
 
@@ -66,12 +72,18 @@ pub async fn verify_user_token(
 
     let json = match data {
         Some(v) => v,
-        None => return Ok(None),
+        None => {
+            debug!(token = ?token, "token not found in redis");
+            return Ok(None);
+        }
     };
 
     let parsed: UserToken = match serde_json::from_str(&json) {
         Ok(v) => v,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            debug!(%e, token = ?token, "failed to deserialize token payload");
+            return Ok(None);
+        }
     };
 
     let now = SystemTime::now()
@@ -80,8 +92,11 @@ pub async fn verify_user_token(
         .as_secs();
 
     if now > parsed.expires_at {
+        debug!(token = ?token, "token expired");
         return Ok(None);
     }
+
+    info!(token = ?token, project_id = %parsed.project_id, user_id = %parsed.user_id, "token valid");
 
     Ok(Some(parsed))
 }

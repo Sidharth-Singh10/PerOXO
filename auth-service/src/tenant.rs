@@ -1,6 +1,7 @@
 use nanoid::nanoid;
 use rand::{Rng, distributions::Alphanumeric};
 use serde::Serialize;
+use tracing::info;
 
 #[derive(Debug, Serialize)]
 pub struct TenantKeypair {
@@ -12,6 +13,8 @@ impl TenantKeypair {
     pub fn new() -> Self {
         let secret_api_key = Self::generate_secret_api_key();
         let project_id = Self::generate_project_id();
+
+        info!(project_id = %project_id, "generated new tenant keypair");
 
         TenantKeypair {
             secret_api_key,
