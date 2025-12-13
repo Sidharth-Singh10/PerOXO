@@ -15,9 +15,12 @@ async fn main() {
 
     // let state = MongoDbConfig::new("REMOVED_SECRET").with_database_name("affinity");
     let chat_service_addr = std::env::var("CHAT_SERVICE_ADDR").unwrap();
+    let auth_service_addr = std::env::var("AUTH_SERVICE_ADDR").unwrap();
+
     let state = match PerOxoStateBuilder::new()
         // .with_mongo_config(state)
         .with_persistence_connection_url(chat_service_addr)
+        .with_auth_url(auth_service_addr)
         .build()
         .await
     {

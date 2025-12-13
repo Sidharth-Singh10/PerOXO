@@ -17,6 +17,7 @@ use tonic::transport::Channel;
 pub struct PerOxoState {
     pub connection_manager: Arc<ConnectionManager>,
     pub router_sender: mpsc::UnboundedSender<RouterMessage>,
+    pub auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
 }
 
 impl PerOxoState {
@@ -24,6 +25,7 @@ impl PerOxoState {
         #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
         #[cfg(feature = "mongo_db")] mango_db_client: mongodb::Client,
         #[cfg(feature = "mongo_db")] mongo_config: MongoDbConfig,
+        auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
         let (persistence_actor, persistence_sender) = PersistenceActor::new(
@@ -50,6 +52,7 @@ impl PerOxoState {
         Ok(Self {
             connection_manager,
             router_sender,
+            auth_client,
         })
     }
 }
@@ -59,6 +62,7 @@ pub struct PerOxoStateBuilder {
     connection_url: Option<String>,
     #[cfg(feature = "mongo_db")]
     mongo_config: Option<MongoDbConfig>,
+    auth_url: Option<String>,
 }
 
 impl Default for PerOxoStateBuilder {
@@ -74,6 +78,7 @@ impl PerOxoStateBuilder {
             connection_url: None,
             #[cfg(feature = "mongo_db")]
             mongo_config: None,
+            auth_url: None,
         }
     }
 
@@ -95,6 +100,11 @@ impl PerOxoStateBuilder {
         self
     }
 
+    pub fn with_auth_url(mut self, url: impl Into<String>) -> Self {
+        self.auth_url = Some(url.into());
+        self
+    }
+
     pub async fn build(self) -> Result<PerOxoState, Box<dyn std::error::Error>> {
         #[cfg(feature = "persistence")]
         let chat_service_client = if let Some(url) = self.connection_url {
@@ -113,6 +123,13 @@ impl PerOxoStateBuilder {
             return Err("mongo_config required when mongo_db is enabled".into());
         };
 
+        let auth_service_client = if let Some(url) = self.auth_url {
+            use crate::connections::connect_auth_service_client;
+            connect_auth_service_client(url).await?
+        } else {
+            return Err("auth_url is required".into());
+        };
+
         PerOxoState::new(
             #[cfg(feature = "persistence")]
             chat_service_client,
@@ -120,6 +137,7 @@ impl PerOxoStateBuilder {
             mango_db_client,
             #[cfg(feature = "mongo_db")]
             mongo_config,
+            auth_service_client,
         )
         .await
     }

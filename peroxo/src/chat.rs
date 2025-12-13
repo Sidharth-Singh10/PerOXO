@@ -5,7 +5,7 @@ use uuid::Uuid;
 pub enum ChatMessage {
     // Direct message to a specific user
     DirectMessage {
-        from: i32,
+        from: Option<i32>,
         to: i32,
         content: String,
         message_id: Option<uuid::Uuid>,

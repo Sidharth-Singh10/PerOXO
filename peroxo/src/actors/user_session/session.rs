@@ -1,3 +1,4 @@
+use crate::UserToken;
 use crate::actors::{message_router::RouterMessage, user_session::handlers};
 use crate::chat::ChatMessage;
 use crate::metrics::Metrics;
@@ -7,7 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error};
 
 pub struct UserSession {
-    user_id: i32,
+    user_token: UserToken,
     socket: WebSocket,
     router_sender: mpsc::UnboundedSender<RouterMessage>,
     session_receiver: mpsc::Receiver<ChatMessage>,
@@ -16,12 +17,14 @@ pub struct UserSession {
 
 impl UserSession {
     pub async fn new(
-        user_id: i32,
+        user_token: UserToken,
         socket: WebSocket,
         router_sender: mpsc::UnboundedSender<RouterMessage>,
     ) -> Result<Self, String> {
         const CHANNEL_BUFFER_SIZE: usize = 100;
         let (session_sender, session_receiver) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+        // fix thiss (cry)
+        let user_id = user_token.user_id.parse::<i32>().unwrap();
 
         // Register with the message router
         let (respond_to, response) = oneshot::channel();
@@ -48,7 +51,7 @@ impl UserSession {
         }
 
         Ok(Self {
-            user_id,
+            user_token,
             socket,
             router_sender,
             session_receiver,
@@ -58,7 +61,8 @@ impl UserSession {
 
     pub async fn run(self) {
         let (mut ws_sender, mut ws_receiver) = self.socket.split();
-        let user_id = self.user_id;
+        // fix thisss (cry)
+        let user_id = self.user_token.user_id.parse::<i32>().unwrap();
         let router_sender = self.router_sender.clone();
         let session_sender_for_rooms = self.session_sender.clone();
         let mut session_receiver = self.session_receiver;
@@ -126,14 +130,14 @@ impl UserSession {
             while let Some(Ok(Message::Text(text))) = ws_receiver.next().await {
                 match serde_json::from_str::<ChatMessage>(&text) {
                     Ok(ChatMessage::DirectMessage {
-                        from,
+                        // fix thiss
+                        from: _,
                         to,
                         content,
                         message_id: _,
                     }) => {
                         if let Err(e) = handlers::handle_direct_message(
-                            user_id_clone,
-                            from,
+                            &self.user_token,
                             to,
                             content,
                             &router_sender_clone,

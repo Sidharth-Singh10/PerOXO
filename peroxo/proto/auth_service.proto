@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package auth_service;
+
+// Request for verifying a user token
+message VerifyUserTokenRequest {
+  string token = 1;
+}
+
+// User token info returned when a token is valid
+message UserToken {
+  string project_id = 1;
+  string user_id = 2;
+  uint64 expires_at = 3;
+}
+
+// Response for verify request - indicates if token was found and the token data
+message VerifyUserTokenResponse {
+  bool found = 1;
+  UserToken user_token = 2;
+}
+
+service AuthService {
+  rpc VerifyUserToken(VerifyUserTokenRequest) returns (VerifyUserTokenResponse);
+}

@@ -1,4 +1,5 @@
 use crate::{
+    UserToken,
     actors::{message_router::RouterMessage, user_session::session::UserSession},
     metrics::Metrics,
 };
@@ -15,10 +16,11 @@ impl ConnectionManager {
         Self { router_sender }
     }
 
-    pub async fn handle_connection(&self, socket: WebSocket, user_id: i32) {
+    pub async fn handle_connection(&self, socket: WebSocket, user_token: UserToken) {
+        let user_id = user_token.user_id.parse::<i32>().unwrap();
         info!("New connection attempt for user: {}", user_id);
 
-        match UserSession::new(user_id, socket, self.router_sender.clone()).await {
+        match UserSession::new(user_token, socket, self.router_sender.clone()).await {
             Ok(session) => {
                 info!("User session created for: {}", user_id);
                 Metrics::websocket_connected();

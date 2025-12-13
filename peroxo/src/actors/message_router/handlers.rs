@@ -119,7 +119,7 @@ impl MessageRouter {
         if let Some(recipient_sender) = self.users.get(&to) {
             let to_clone = to;
             let message = ChatMessage::DirectMessage {
-                from,
+                from: Some(from),
                 to,
                 content,
                 message_id: Some(message_id),
