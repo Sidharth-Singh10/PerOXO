@@ -35,6 +35,8 @@ impl PersistenceActor {
                 created_at: mongodb::bson::DateTime::from_millis(timestamp),
             };
 
+            let start = std::time::Instant::now();
+
             if let Err(e) = self
                 .insert_message_in_mongo(&self.mango_db_client, message)
                 .await
@@ -42,6 +44,8 @@ impl PersistenceActor {
                 error!("Failed to persist message to MongoDB: {}", e);
                 return Err(format!("MongoDB persistence failed: {}", e));
             }
+
+            Metrics::observe_db_query("mongo_db_write", start.elapsed());
             debug!(
                 "Successfully persisted message to MongoDB from {} to {}",
                 sender_id, receiver_id
@@ -51,36 +55,43 @@ impl PersistenceActor {
 
         #[cfg(feature = "persistence")]
         // Make the gRPC call with retry logic
-        match self
-            .write_dm_with_retry(
-                sender_id,
-                receiver_id,
-                message_content,
-                message_id,
-                timestamp,
-                3,
-            )
-            .await
         {
-            Ok(response) => {
-                let write_dm_response = response.into_inner();
-                if write_dm_response.success {
-                    debug!(
-                        "Successfully persisted message from {} to {}",
-                        sender_id, receiver_id
-                    );
-                    Ok(())
-                } else {
-                    error!(
-                        "Failed to persist message: {}",
-                        write_dm_response.error_message
-                    );
-                    Err(write_dm_response.error_message)
+            let start = std::time::Instant::now();
+
+            match self
+                .write_dm_with_retry(
+                    sender_id,
+                    receiver_id,
+                    message_content,
+                    message_id,
+                    timestamp,
+                    3,
+                )
+                .await
+            {
+                Ok(response) => {
+                    let write_dm_response = response.into_inner();
+                    if write_dm_response.success {
+                        use crate::metrics::Metrics;
+
+                        debug!(
+                            "Successfully persisted message from {} to {}",
+                            sender_id, receiver_id
+                        );
+                        Metrics::observe_db_query("grpc_write_dm", start.elapsed());
+                        Ok(())
+                    } else {
+                        error!(
+                            "Failed to persist message: {}",
+                            write_dm_response.error_message
+                        );
+                        Err(write_dm_response.error_message)
+                    }
                 }
-            }
-            Err(e) => {
-                error!("gRPC call failed: {}", e);
-                Err(format!("gRPC call failed: {}", e))
+                Err(e) => {
+                    error!("gRPC call failed: {}", e);
+                    Err(format!("gRPC call failed: {}", e))
+                }
             }
         }
     }

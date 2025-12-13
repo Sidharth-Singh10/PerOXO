@@ -8,7 +8,7 @@ use prometheus::{
 use std::sync::LazyLock;
 use std::time::Instant;
 
-pub static HTTP_REQUESTS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
+static HTTP_REQUESTS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         opts!("http_requests_total", "Total number of HTTP requests"),
         &["method", "path", "status"]
@@ -16,7 +16,7 @@ pub static HTTP_REQUESTS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static HTTP_REQUEST_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
+static HTTP_REQUEST_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         histogram_opts!(
             "http_request_duration_seconds",
@@ -30,7 +30,7 @@ pub static HTTP_REQUEST_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static WEBSOCKET_CONNECTIONS_ACTIVE: LazyLock<Gauge> = LazyLock::new(|| {
+static WEBSOCKET_CONNECTIONS_ACTIVE: LazyLock<Gauge> = LazyLock::new(|| {
     register_gauge!(opts!(
         "websocket_connections_active",
         "Active WS connections"
@@ -38,7 +38,7 @@ pub static WEBSOCKET_CONNECTIONS_ACTIVE: LazyLock<Gauge> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static WEBSOCKET_MESSAGES_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
+static WEBSOCKET_MESSAGES_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         opts!("websocket_messages_total", "Total WebSocket messages"),
         &["direction"]
@@ -46,7 +46,7 @@ pub static WEBSOCKET_MESSAGES_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static CHAT_MESSAGES_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
+static CHAT_MESSAGES_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         opts!("chat_messages_total", "Total chat messages processed"),
         &["message_type"]
@@ -54,7 +54,7 @@ pub static CHAT_MESSAGES_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static CHAT_MESSAGE_PROCESSING_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
+static CHAT_MESSAGE_PROCESSING_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         histogram_opts!(
             "chat_message_processing_duration_seconds",
@@ -66,7 +66,7 @@ pub static CHAT_MESSAGE_PROCESSING_DURATION: LazyLock<HistogramVec> = LazyLock::
     .unwrap()
 });
 
-pub static GRPC_REQUESTS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
+static GRPC_REQUESTS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         opts!("grpc_requests_total", "Total gRPC requests"),
         &["service", "method", "status"]
@@ -74,11 +74,22 @@ pub static GRPC_REQUESTS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static GRPC_REQUEST_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
+static GRPC_REQUEST_DURATION: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         histogram_opts!("grpc_request_duration_seconds", "gRPC request duration")
             .buckets(vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
         &["service", "method"]
+    )
+    .unwrap()
+});
+
+static DB_QUERY_DURATION_SECONDS: LazyLock<HistogramVec> = LazyLock::new(|| {
+    register_histogram_vec!(
+        histogram_opts!(
+            "db_query_duration_seconds",
+            "Duration of database queries in seconds"
+        ),
+        &["operation"]
     )
     .unwrap()
 });
@@ -158,7 +169,6 @@ impl Metrics {
             .observe(duration.as_secs_f64());
     }
 
-    // --- gRPC ---
     pub fn grpc_request_completed(
         service: &str,
         method: &str,
@@ -171,6 +181,12 @@ impl Metrics {
 
         GRPC_REQUEST_DURATION
             .with_label_values(&[service, method])
+            .observe(duration.as_secs_f64());
+    }
+
+    pub fn observe_db_query(operation: &str, duration: std::time::Duration) {
+        DB_QUERY_DURATION_SECONDS
+            .with_label_values(&[operation])
             .observe(duration.as_secs_f64());
     }
 }
