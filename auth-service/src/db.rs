@@ -1,6 +1,8 @@
 use sqlx::Row;
 use sqlx::{PgPool, Result};
+use tracing::{info, instrument};
 
+#[instrument(skip(pool, secret_key), fields(project_id = %project_id))]
 pub async fn insert_tenant_keypair(
     pool: &PgPool,
     project_id: &str,
@@ -17,9 +19,12 @@ pub async fn insert_tenant_keypair(
     .execute(pool)
     .await?;
 
+    info!("inserted tenant keypair");
+
     Ok(())
 }
 
+#[instrument(skip(pool), fields(project_id = %project_id))]
 pub async fn get_secret_key_by_project_id(
     pool: &PgPool,
     project_id: &str,
@@ -31,8 +36,10 @@ pub async fn get_secret_key_by_project_id(
 
     if let Some(row) = row {
         let secret_api_key: String = row.get("secret_api_key");
+        info!("found secret key for project_id");
         Ok(Some(secret_api_key))
     } else {
+        info!("no secret key found for project_id");
         Ok(None)
     }
 }
