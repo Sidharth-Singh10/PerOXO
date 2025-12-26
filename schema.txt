@@ -2,7 +2,56 @@ scyllaDB schema
 
 // Each unique conversation_id maps to one partition (not table), 
 // and all messages in that conversation are stored together in that partition.
-// message_id is the clustering key, which determines order within that partition.
+// message_id is the clustering key, which determines order within that partition.//
+
+// peroxo as hosted service db schema
+
+CREATE TABLE direct_messages (
+  project_id text,
+  conversation_id text,
+  message_id timeuuid,       -- timeuuid for natural ordering + pagination
+  sender_id text,            -- text if cross-project user_id formats differ
+  recipient_id text,
+  message_text text,
+  created_at timestamp,
+  PRIMARY KEY ((project_id, conversation_id), message_id)
+) WITH CLUSTERING ORDER BY (message_id ASC);
+
+partition key -> (project_id, conversation_id)
+clustering key -> message_id
+
+CREATE TABLE user_conversations (
+  project_id text,
+  user_id text,
+  conversation_id text,
+  last_message timestamp,
+  PRIMARY KEY ((project_id, user_id), conversation_id)
+);
+
+
+CREATE TABLE room_messages (
+  project_id text,
+  room_id text,
+  message_id timeuuid,
+  sender_id text,
+  content text,
+  created_at timestamp,
+  PRIMARY KEY ((project_id, room_id), message_id)
+) WITH CLUSTERING ORDER BY (message_id ASC);
+
+CREATE TABLE projects (
+  project_id text PRIMARY KEY,
+  name text,
+  created_at timestamp
+);
+
+CREATE TABLE project_rooms (
+  project_id text,
+  room_id text,
+  last_activity timestamp,
+  PRIMARY KEY ((project_id), room_id)
+) WITH CLUSTERING ORDER BY (room_id ASC);
+
 
 CREATE TABLE direct_messages (
   conversation_id text,      
@@ -20,3 +69,12 @@ CREATE TABLE user_conversations (
   last_message timestamp,
   PRIMARY KEY (user_id, conversation_id)
 );
+
+CREATE TABLE IF NOT EXISTS room_messages (
+            room_id text,
+            message_id uuid,
+            sender_id int,
+            content text,
+            created_at timestamp,
+            PRIMARY KEY ((room_id), message_id)
+        ) WITH CLUSTERING ORDER BY (message_id ASC)
