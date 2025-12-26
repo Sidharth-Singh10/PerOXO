@@ -38,3 +38,9 @@ jobs:
           context: ./rabbit_consumer
           push: true
           tags: sidharthsingh7/per_oxo_rabbit_consumer:latest
+      - name: Build and push auth-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./auth-service
+          push: true
+          tags: sidharthsingh7/per_oxo_auth_service:latest
