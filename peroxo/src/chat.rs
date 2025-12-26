@@ -3,19 +3,28 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ChatMessage {
-    // Direct message to a specific user
-    DirectMessage {
-        from: Option<i32>,
+    // client to server (naming from client POV, can be improved)
+    SendDirectMessage {
         to: i32,
         content: String,
-        message_id: Option<uuid::Uuid>,
+        client_message_id: uuid::Uuid,
+        // message_id: Option<uuid::Uuid>,
+    },
+    // server to client
+    DirectMessage {
+        from: i32,
+        content: String,
+        server_message_id: uuid::Uuid,
+        timestamp: i64,
     },
     // Presence update (user online/offline)
     Presence {
         user: i32,
         status: PresenceStatus,
     },
+
     MessageAck {
+        client_message_id: uuid::Uuid,
         message_id: uuid::Uuid,
         timestamp: i64,
         status: MessageStatus,

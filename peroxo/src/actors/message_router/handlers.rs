@@ -119,10 +119,10 @@ impl MessageRouter {
         if let Some(recipient_sender) = self.users.get(&to) {
             let to_clone = to;
             let message = ChatMessage::DirectMessage {
-                from: Some(from),
-                to,
+                from: from,
                 content,
-                message_id: Some(message_id),
+                server_message_id: message_id,
+                timestamp: chrono::Utc::now().timestamp_millis(),
             };
 
             // Use try_send to avoid blocking if the recipient's channel is full

@@ -10,6 +10,7 @@ pub async fn handle_direct_message(
     user_token: &UserToken,
     to: i32,
     content: String,
+    client_message_id: Uuid,
     router_sender: &mpsc::UnboundedSender<RouterMessage>,
     ack_sender: &mpsc::Sender<ChatMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -18,13 +19,13 @@ pub async fn handle_direct_message(
 
     let (respond_to, response) = oneshot::channel();
 
-    let message_id = Uuid::now_v1(&NODE_ID);
+    let server_message_id = Uuid::now_v1(&NODE_ID);
 
     let router_msg = RouterMessage::SendDirectMessage {
         from: user_id,
         to,
         content,
-        message_id,
+        message_id: server_message_id,
         respond_to: Some(respond_to),
     };
 
@@ -37,6 +38,7 @@ pub async fn handle_direct_message(
     tokio::spawn(async move {
         if let Ok(ack_response) = response.await {
             let ack_message = ChatMessage::MessageAck {
+                client_message_id,
                 message_id: ack_response.message_id,
                 timestamp: ack_response.timestamp,
                 status: ack_response.status,
@@ -57,7 +59,7 @@ pub async fn handle_room_message(
     room_id: String,
     from: i32,
     content: String,
-    message_id: uuid::Uuid,
+    client_message_id: uuid::Uuid,
     router_sender: &mpsc::UnboundedSender<RouterMessage>,
     ack_sender: &mpsc::Sender<ChatMessage>,
 ) -> Result<(), String> {
@@ -65,12 +67,14 @@ pub async fn handle_room_message(
         return Err("User ID mismatch".to_string());
     }
 
+    let server_message_id = Uuid::now_v1(&NODE_ID);
+
     let (respond_to, response) = oneshot::channel();
     let router_msg = RouterMessage::SendRoomMessage {
         room_id,
         from,
         content,
-        message_id,
+        message_id: server_message_id,
         respond_to: Some(respond_to),
     };
 
@@ -82,6 +86,7 @@ pub async fn handle_room_message(
     tokio::spawn(async move {
         if let Ok(ack_response) = response.await {
             let ack_msg = ChatMessage::MessageAck {
+                client_message_id,
                 message_id: ack_response.message_id,
                 timestamp: ack_response.timestamp,
                 status: ack_response.status,

@@ -129,17 +129,16 @@ impl UserSession {
         let mut recv_task = tokio::spawn(async move {
             while let Some(Ok(Message::Text(text))) = ws_receiver.next().await {
                 match serde_json::from_str::<ChatMessage>(&text) {
-                    Ok(ChatMessage::DirectMessage {
-                        // fix thiss
-                        from: _,
+                    Ok(ChatMessage::SendDirectMessage {
                         to,
                         content,
-                        message_id: _,
+                        client_message_id,
                     }) => {
                         if let Err(e) = handlers::handle_direct_message(
                             &self.user_token,
                             to,
                             content,
+                            client_message_id,
                             &router_sender_clone,
                             &ack_sender,
                         )
