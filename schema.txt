@@ -52,6 +52,7 @@ CREATE TABLE project_rooms (
   PRIMARY KEY ((project_id), room_id)
 ) WITH CLUSTERING ORDER BY (room_id ASC);
 
+---------------
 
 CREATE TABLE direct_messages (
   conversation_id text,      
