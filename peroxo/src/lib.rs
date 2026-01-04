@@ -12,6 +12,7 @@ use crate::{
     metrics::{metrics_handler, metrics_middleware},
     socket::dm_socket,
     state::PerOxoState,
+    tenant::TenantUserId,
 };
 
 tonic::include_proto!("auth_service");
@@ -24,6 +25,7 @@ pub mod metrics;
 pub mod mongo_db;
 pub mod socket;
 pub mod state;
+pub mod tenant;
 
 async fn verify_token(
     state: &Arc<PerOxoState>,
@@ -71,7 +73,11 @@ async fn ws_handler(
         Err(err) => return err.into_response(),
     };
 
-    ws.on_upgrade(move |socket| dm_socket(socket, user_token, state))
+    let tenant_user_id = match TenantUserId::from_token(&user_token) {
+        Ok(id) => id,
+        Err(_) => return (StatusCode::UNAUTHORIZED, "Invalid tenant token").into_response(),
+    };
+    ws.on_upgrade(move |socket| dm_socket(socket, tenant_user_id, state))
 }
 
 pub fn peroxo_route(state: Arc<PerOxoState>) -> Router {

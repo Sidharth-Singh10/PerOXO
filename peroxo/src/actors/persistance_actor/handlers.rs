@@ -4,13 +4,16 @@ use super::actor::PersistenceActor;
 
 #[cfg(feature = "persistence")]
 use crate::actors::chat_service::WriteDmResponse;
-use crate::chat::{PaginatedMessagesResponse, ResponseDirectMessage};
+use crate::{
+    chat::{PaginatedMessagesResponse, ResponseDirectMessage},
+    tenant::TenantUserId,
+};
 
 impl PersistenceActor {
     pub async fn handle_persist_direct_message(
         &mut self,
-        sender_id: i32,
-        receiver_id: i32,
+        tenant_sender_id: TenantUserId,
+        tenant_receiver_id: TenantUserId,
         message_content: String,
         message_id: uuid::Uuid,
         timestamp: i64,
@@ -60,8 +63,8 @@ impl PersistenceActor {
 
             match self
                 .write_dm_with_retry(
-                    sender_id,
-                    receiver_id,
+                    tenant_sender_id.user_id,
+                    tenant_receiver_id.user_id,
                     message_content,
                     message_id,
                     timestamp,
@@ -76,7 +79,7 @@ impl PersistenceActor {
 
                         debug!(
                             "Successfully persisted message from {} to {}",
-                            sender_id, receiver_id
+                            tenant_sender_id, tenant_receiver_id
                         );
                         Metrics::observe_db_query("grpc_write_dm", start.elapsed());
                         Ok(())
@@ -343,7 +346,7 @@ impl PersistenceActor {
     pub async fn handle_persist_room_message(
         &mut self,
         room_id: String,
-        sender_id: i32,
+        sender_id: TenantUserId,
         message_content: String,
         message_id: uuid::Uuid,
         timestamp: i64,
@@ -351,7 +354,7 @@ impl PersistenceActor {
         match self
             .write_room_message_with_retry(
                 room_id.clone(),
-                sender_id,
+                sender_id.user_id,
                 message_content,
                 message_id,
                 timestamp,

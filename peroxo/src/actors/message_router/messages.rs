@@ -1,28 +1,31 @@
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::chat::PaginatedMessagesResponse;
-use crate::chat::{ChatMessage, MessageAckResponse};
+use crate::{
+    chat::{ChatMessage, MessageAckResponse},
+    tenant::TenantUserId,
+};
 
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 pub enum RouterMessage {
     RegisterUser {
-        user_id: i32,
+        tenant_user_id: TenantUserId,
         sender: tokio::sync::mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     },
     UnregisterUser {
-        user_id: i32,
+        tenant_user_id: TenantUserId,
     },
     SendDirectMessage {
-        from: i32,
-        to: i32,
+        from: TenantUserId,
+        to: TenantUserId,
         content: String,
         message_id: uuid::Uuid,
         respond_to: Option<oneshot::Sender<MessageAckResponse>>,
     },
     GetOnlineUsers {
-        respond_to: oneshot::Sender<Vec<i32>>,
+        respond_to: oneshot::Sender<Vec<TenantUserId>>,
     },
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     GetPaginatedMessages {
@@ -31,25 +34,25 @@ pub enum RouterMessage {
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
     },
     JoinRoom {
-        user_id: i32,
+        tenant_user_id: TenantUserId,
         room_id: String,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     },
     LeaveRoom {
-        user_id: i32,
+        tenant_user_id: TenantUserId,
         room_id: String,
     },
     SendRoomMessage {
         room_id: String,
-        from: i32,
+        from: TenantUserId,
         content: String,
         message_id: uuid::Uuid,
         respond_to: Option<oneshot::Sender<MessageAckResponse>>,
     },
     GetRoomMembers {
         room_id: String,
-        respond_to: oneshot::Sender<Option<Vec<i32>>>,
+        respond_to: oneshot::Sender<Option<Vec<TenantUserId>>>,
     },
 
     #[cfg(feature = "persistence")]

@@ -1,28 +1,28 @@
-use crate::UserToken;
 use crate::actors::{message_router::RouterMessage, uuid_util::NODE_ID};
 use crate::chat::ChatMessage;
 use crate::metrics::Metrics;
+use crate::tenant::TenantUserId;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error};
 use uuid::Uuid;
 
 pub async fn handle_direct_message(
-    user_token: &UserToken,
-    to: i32,
+    user_token: TenantUserId,
+    to: TenantUserId,
     content: String,
     client_message_id: Uuid,
     router_sender: &mpsc::UnboundedSender<RouterMessage>,
     ack_sender: &mpsc::Sender<ChatMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     Metrics::websocket_message_received();
-    let user_id = user_token.user_id.parse::<i32>()?;
+    // let user_id = user_token.user_id.parse::<i32>()?;
 
     let (respond_to, response) = oneshot::channel();
 
     let server_message_id = Uuid::now_v1(&NODE_ID);
 
     let router_msg = RouterMessage::SendDirectMessage {
-        from: user_id,
+        from: user_token.clone(),
         to,
         content,
         message_id: server_message_id,
@@ -30,7 +30,7 @@ pub async fn handle_direct_message(
     };
 
     if router_sender.send(router_msg).is_err() {
-        error!("Failed to send message to router for user {}", user_id);
+        error!("Failed to send message to router for user {}", user_token);
         return Err("Router communication failed".into());
     }
 
@@ -50,14 +50,17 @@ pub async fn handle_direct_message(
         }
     });
 
-    debug!("Direct message handled successfully for user {}", user_id);
+    debug!(
+        "Direct message handled successfully for user {}",
+        user_token
+    );
     Ok(())
 }
 // Add to handlers module in user_session:
 pub async fn handle_room_message(
-    user_id: i32,
+    user_id: TenantUserId,
     room_id: String,
-    from: i32,
+    from: TenantUserId,
     content: String,
     client_message_id: uuid::Uuid,
     router_sender: &mpsc::UnboundedSender<RouterMessage>,

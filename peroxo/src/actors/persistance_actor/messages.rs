@@ -1,12 +1,12 @@
 use tokio::sync::oneshot;
 
-use crate::chat::PaginatedMessagesResponse;
+use crate::{chat::PaginatedMessagesResponse, tenant::TenantUserId};
 
 #[derive(Debug)]
 pub enum PersistenceMessage {
     PersistDirectMessage {
-        sender_id: i32,
-        receiver_id: i32,
+        sender_id: TenantUserId,
+        receiver_id: TenantUserId,
         message_content: String,
         message_id: uuid::Uuid,
         timestamp: i64,
@@ -19,7 +19,7 @@ pub enum PersistenceMessage {
     },
     PersistRoomMessage {
         room_id: String,
-        sender_id: i32,
+        sender_id: TenantUserId,
         message_content: String,
         message_id: uuid::Uuid,
         timestamp: i64,

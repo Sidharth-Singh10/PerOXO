@@ -1,14 +1,14 @@
-use crate::UserToken;
 use crate::actors::{message_router::RouterMessage, user_session::handlers};
 use crate::chat::ChatMessage;
 use crate::metrics::Metrics;
+use crate::tenant::TenantUserId;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error};
 
 pub struct UserSession {
-    user_token: UserToken,
+    tenant_user_id: TenantUserId,
     socket: WebSocket,
     router_sender: mpsc::UnboundedSender<RouterMessage>,
     session_receiver: mpsc::Receiver<ChatMessage>,
@@ -17,19 +17,18 @@ pub struct UserSession {
 
 impl UserSession {
     pub async fn new(
-        user_token: UserToken,
+        tenant_user_id: TenantUserId,
         socket: WebSocket,
         router_sender: mpsc::UnboundedSender<RouterMessage>,
     ) -> Result<Self, String> {
+        // get a better number
         const CHANNEL_BUFFER_SIZE: usize = 100;
         let (session_sender, session_receiver) = mpsc::channel(CHANNEL_BUFFER_SIZE);
-        // fix thiss (cry)
-        let user_id = user_token.user_id.parse::<i32>().unwrap();
 
         // Register with the message router
         let (respond_to, response) = oneshot::channel();
         let register_msg = RouterMessage::RegisterUser {
-            user_id,
+            tenant_user_id: tenant_user_id.clone(),
             sender: session_sender.clone(),
             respond_to,
         };
@@ -40,7 +39,7 @@ impl UserSession {
 
         match response.await {
             Ok(Ok(())) => {
-                debug!("User {} registered successfully", user_id);
+                debug!("User {} registered successfully", tenant_user_id);
             }
             Ok(Err(e)) => {
                 return Err(e);
@@ -51,7 +50,7 @@ impl UserSession {
         }
 
         Ok(Self {
-            user_token,
+            tenant_user_id,
             socket,
             router_sender,
             session_receiver,
@@ -61,15 +60,14 @@ impl UserSession {
 
     pub async fn run(self) {
         let (mut ws_sender, mut ws_receiver) = self.socket.split();
-        // fix thisss (cry)
-        let user_id = self.user_token.user_id.parse::<i32>().unwrap();
+
         let router_sender = self.router_sender.clone();
         let session_sender_for_rooms = self.session_sender.clone();
         let mut session_receiver = self.session_receiver;
 
         let (ack_sender, mut ack_receiver) = mpsc::channel::<ChatMessage>(100);
         // Task to handle outgoing messages (from session to WebSocket)
-        let user_id_clone = user_id;
+        let tenant_user_id_clone = self.tenant_user_id.clone();
         let mut send_task = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -82,14 +80,14 @@ impl UserSession {
                                         if ws_sender.send(Message::Text(json.into())).await.is_err() {
                                             debug!(
                                                 "WebSocket send failed for user {}, likely disconnected",
-                                                user_id_clone
+                                                tenant_user_id_clone
                                             );
                                             break;
                                         }
                                         Metrics::websocket_message_sent();
                                     }
                                     Err(e) => {
-                                        error!("Failed to serialize message for {}: {}", user_id_clone, e);
+                                        error!("Failed to serialize message for {}: {}", tenant_user_id_clone, e);
                                     }
                                 }
                             }
@@ -105,13 +103,13 @@ impl UserSession {
                                         if ws_sender.send(Message::Text(json.into())).await.is_err() {
                                             debug!(
                                                 "WebSocket send failed for user {}, likely disconnected",
-                                                user_id_clone
+                                                tenant_user_id_clone
                                             );
                                             break;
                                         }
                                     }
                                     Err(e) => {
-                                        error!("Failed to serialize ack message for {}: {}", user_id_clone, e);
+                                        error!("Failed to serialize ack message for {}: {}", tenant_user_id_clone, e);
                                     }
                                 }
                             }
@@ -123,7 +121,7 @@ impl UserSession {
         });
 
         // Task to handle incoming messages (from WebSocket to router)
-        let user_id_clone = user_id;
+        let tenant_user_id_clone = self.tenant_user_id.clone();
         let router_sender_clone = router_sender.clone();
 
         let mut recv_task = tokio::spawn(async move {
@@ -135,7 +133,7 @@ impl UserSession {
                         client_message_id,
                     }) => {
                         if let Err(e) = handlers::handle_direct_message(
-                            &self.user_token,
+                            tenant_user_id_clone.clone(),
                             to,
                             content,
                             client_message_id,
@@ -193,7 +191,7 @@ impl UserSession {
                         message_id,
                     }) => {
                         if let Err(e) = handlers::handle_room_message(
-                            user_id_clone,
+                            tenant_user_id_clone.clone(),
                             room_id,
                             from,
                             content,
@@ -209,7 +207,7 @@ impl UserSession {
                     Ok(ChatMessage::JoinRoom { room_id }) => {
                         let (respond_to, _) = oneshot::channel();
                         let router_msg = RouterMessage::JoinRoom {
-                            user_id: user_id_clone,
+                            tenant_user_id: tenant_user_id_clone.clone(),
                             room_id,
                             sender: session_sender_for_rooms.clone(),
                             respond_to,
@@ -257,7 +255,10 @@ impl UserSession {
                         // Ignore other message types from clients for now
                     }
                     Err(e) => {
-                        error!("Failed to parse message from {}: {}", user_id_clone, e);
+                        error!(
+                            "Failed to parse message from {}: {}",
+                            tenant_user_id_clone, e
+                        );
                     }
                 }
             }
@@ -266,21 +267,23 @@ impl UserSession {
         // Wait for either task to complete
         tokio::select! {
             _ = &mut send_task => {
-                debug!("Send task completed for user {}", user_id);
+                debug!("Send task completed for user {}", self.tenant_user_id);
                 recv_task.abort();
             }
             _ = &mut recv_task => {
-                debug!("Receive task completed for user {}", user_id);
+                debug!("Receive task completed for user {}", self.tenant_user_id);
                 send_task.abort();
             }
         }
 
         // Unregister from router
-        let unregister_msg = RouterMessage::UnregisterUser { user_id };
+        let unregister_msg = RouterMessage::UnregisterUser {
+            tenant_user_id: self.tenant_user_id.clone(),
+        };
         let _ = router_sender.send(unregister_msg);
 
         Metrics::websocket_disconnected();
 
-        debug!("User session ended for {}", user_id);
+        debug!("User session ended for {}", self.tenant_user_id);
     }
 }

@@ -1,25 +1,27 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::tenant::TenantUserId;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ChatMessage {
     // client to server (naming from client POV, can be improved)
     SendDirectMessage {
-        to: i32,
+        to: TenantUserId,
         content: String,
         client_message_id: uuid::Uuid,
         // message_id: Option<uuid::Uuid>,
     },
     // server to client
     DirectMessage {
-        from: i32,
+        from: TenantUserId,
         content: String,
         server_message_id: uuid::Uuid,
         timestamp: i64,
     },
     // Presence update (user online/offline)
     Presence {
-        user: i32,
+        user: TenantUserId,
         status: PresenceStatus,
     },
 
@@ -44,7 +46,7 @@ pub enum ChatMessage {
     },
     RoomMessage {
         room_id: String,
-        from: i32,
+        from: TenantUserId,
         content: String,
         message_id: uuid::Uuid,
     },

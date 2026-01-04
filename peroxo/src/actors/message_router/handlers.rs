@@ -12,23 +12,24 @@ use crate::chat::PaginatedMessagesResponse;
 
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::actors::persistance_actor::PersistenceMessage;
+use crate::tenant::TenantUserId;
 
 impl MessageRouter {
     pub async fn handle_register_user(
         &mut self,
-        user_id: i32,
+        tenant_user_id: TenantUserId,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     ) {
-        if self.users.contains_key(&user_id) {
+        if self.users.contains_key(&tenant_user_id) {
             let _ = respond_to.send(Err("User already online".to_string()));
             return;
         }
+        // clone?????
+        self.users.insert(tenant_user_id.clone(), sender);
+        self.online_users.push(tenant_user_id.clone());
 
-        self.users.insert(user_id, sender);
-        self.online_users.push(user_id);
-
-        debug!("User {} registered successfully", user_id);
+        debug!("User {} registered successfully", tenant_user_id);
 
         // Broadcast presence update to all users
         // self.broadcast_presence_update(user_id, PresenceStatus::Online)
@@ -36,21 +37,17 @@ impl MessageRouter {
 
         let _ = respond_to.send(Ok(()));
     }
-
-    pub async fn handle_unregister_user(&mut self, user_id: i32) {
-        if self.users.remove(&user_id).is_some() {
-            self.online_users.retain(|u| u != &user_id);
-
-            // Broadcast presence update to all users
-            // self.broadcast_presence_update(user_id, PresenceStatus::Offline)
-            //     .await;
+    // must be a better way
+    pub async fn handle_unregister_user(&mut self, tenant_user_id: TenantUserId) {
+        if self.users.remove(&tenant_user_id).is_some() {
+            self.online_users.retain(|u| u != &tenant_user_id);
         }
     }
 
     pub async fn handle_direct_message(
         &self,
-        from: i32,
-        to: i32,
+        from: TenantUserId,
+        to: TenantUserId,
         content: String,
         message_id: uuid::Uuid,
         #[cfg(any(feature = "mongo_db", feature = "persistence"))] respond_to: Option<
@@ -62,9 +59,10 @@ impl MessageRouter {
             if let Some(persistence_sender) = &self.persistence_sender {
                 let (persist_respond_to, persist_response) = oneshot::channel();
 
+                // fix clones
                 let persist_msg = PersistenceMessage::PersistDirectMessage {
-                    sender_id: from,
-                    receiver_id: to,
+                    sender_id: from.clone(),
+                    receiver_id: to.clone(),
                     message_content: content.clone(),
                     message_id,
                     timestamp: chrono::Utc::now().timestamp_millis(),
@@ -119,7 +117,7 @@ impl MessageRouter {
         if let Some(recipient_sender) = self.users.get(&to) {
             let to_clone = to;
             let message = ChatMessage::DirectMessage {
-                from: from,
+                from,
                 content,
                 server_message_id: message_id,
                 timestamp: chrono::Utc::now().timestamp_millis(),
@@ -180,7 +178,7 @@ impl MessageRouter {
 
     pub async fn handle_join_room(
         &mut self,
-        user_id: i32,
+        tenant_user_id: TenantUserId,
         room_id: String,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
@@ -209,7 +207,7 @@ impl MessageRouter {
 
         let (room_respond_to, room_response) = oneshot::channel();
         let room_msg = RoomMessage::AddMember {
-            user_id,
+            tenant_user_id,
             sender,
             respond_to: room_respond_to,
         };
@@ -231,9 +229,9 @@ impl MessageRouter {
         });
     }
 
-    pub async fn handle_leave_room(&mut self, user_id: i32, room_id: String) {
+    pub async fn handle_leave_room(&mut self, tenant_user_id: TenantUserId, room_id: String) {
         if let Some(room_sender) = self.rooms.get(&room_id) {
-            let room_msg = RoomMessage::RemoveMember { user_id };
+            let room_msg = RoomMessage::RemoveMember { tenant_user_id };
             let _ = room_sender.send(room_msg);
         }
     }
@@ -241,7 +239,7 @@ impl MessageRouter {
     pub async fn handle_room_message(
         &self,
         room_id: String,
-        from: i32,
+        from: TenantUserId,
         content: String,
         message_id: uuid::Uuid,
         respond_to: Option<oneshot::Sender<MessageAckResponse>>,
@@ -271,7 +269,7 @@ impl MessageRouter {
     pub async fn handle_get_room_members(
         &self,
         room_id: String,
-        respond_to: oneshot::Sender<Option<Vec<i32>>>,
+        respond_to: oneshot::Sender<Option<Vec<TenantUserId>>>,
     ) {
         if let Some(room_sender) = self.rooms.get(&room_id) {
             let (room_respond_to, room_response) = oneshot::channel();

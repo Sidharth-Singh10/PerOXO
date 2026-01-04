@@ -1,4 +1,5 @@
 use crate::chat::{ChatMessage, MessageAckResponse};
+use crate::tenant::TenantUserId;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::{actors::persistance_actor::PersistenceMessage, chat::PaginatedMessagesResponse};
 
@@ -16,21 +17,21 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub enum RoomMessage {
     AddMember {
-        user_id: i32,
+        tenant_user_id: TenantUserId,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     },
     RemoveMember {
-        user_id: i32,
+        tenant_user_id: TenantUserId,
     },
     SendMessage {
-        from: i32,
+        from: TenantUserId,
         content: String,
         message_id: Uuid,
         respond_to: Option<oneshot::Sender<MessageAckResponse>>,
     },
     GetMembers {
-        respond_to: oneshot::Sender<Vec<i32>>,
+        respond_to: oneshot::Sender<Vec<TenantUserId>>,
     },
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     GetPaginatedMessages {
@@ -42,7 +43,7 @@ pub enum RoomMessage {
 pub struct RoomActor {
     room_id: String,
     receiver: mpsc::UnboundedReceiver<RoomMessage>,
-    members: Arc<Mutex<HashMap<i32, mpsc::Sender<ChatMessage>>>>,
+    members: Arc<Mutex<HashMap<TenantUserId, mpsc::Sender<ChatMessage>>>>,
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
 }
@@ -91,14 +92,15 @@ impl RoomActor {
         while let Some(message) = self.receiver.recv().await {
             match message {
                 RoomMessage::AddMember {
-                    user_id,
+                    tenant_user_id,
                     sender,
                     respond_to,
                 } => {
-                    self.handle_add_member(user_id, sender, respond_to).await;
+                    self.handle_add_member(tenant_user_id, sender, respond_to)
+                        .await;
                 }
-                RoomMessage::RemoveMember { user_id } => {
-                    self.handle_remove_member(user_id).await;
+                RoomMessage::RemoveMember { tenant_user_id } => {
+                    self.handle_remove_member(tenant_user_id).await;
                 }
                 RoomMessage::SendMessage {
                     from,
@@ -117,9 +119,11 @@ impl RoomActor {
                     .await;
                 }
                 RoomMessage::GetMembers { respond_to } => {
-                    let members: Vec<i32> = self.members.lock().await.keys().copied().collect();
+                    let members: Vec<TenantUserId> =
+                        self.members.lock().await.keys().cloned().collect();
                     let _ = respond_to.send(members);
                 }
+
                 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
                 RoomMessage::GetPaginatedMessages {
                     message_id,
@@ -136,30 +140,34 @@ impl RoomActor {
 
     async fn handle_add_member(
         &mut self,
-        user_id: i32,
+        tenant_user_id: TenantUserId,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     ) {
-        if self.members.lock().await.contains_key(&user_id) {
+        //fix:  lock free???
+        if self.members.lock().await.contains_key(&tenant_user_id) {
             let _ = respond_to.send(Err("User already in room".to_string()));
             return;
         }
 
-        self.members.lock().await.insert(user_id, sender);
-        debug!("User {} added to room {}", user_id, self.room_id);
+        self.members
+            .lock()
+            .await
+            .insert(tenant_user_id.clone(), sender);
+        debug!("User {} added to room {}", tenant_user_id, self.room_id);
 
         let _ = respond_to.send(Ok(()));
     }
 
-    async fn handle_remove_member(&mut self, user_id: i32) {
-        if self.members.lock().await.remove(&user_id).is_some() {
-            debug!("User {} removed from room {}", user_id, self.room_id);
+    async fn handle_remove_member(&mut self, tenant_user_id: TenantUserId) {
+        if self.members.lock().await.remove(&tenant_user_id).is_some() {
+            debug!("User {} removed from room {}", tenant_user_id, self.room_id);
         }
     }
 
     async fn handle_send_message(
         &self,
-        from: i32,
+        from: TenantUserId,
         content: String,
         message_id: Uuid,
         #[cfg(any(feature = "mongo_db", feature = "persistence"))] respond_to: Option<
@@ -173,7 +181,7 @@ impl RoomActor {
 
                 let persist_msg = PersistenceMessage::PersistRoomMessage {
                     room_id: self.room_id.clone(),
-                    sender_id: from,
+                    sender_id: from.clone(),
                     message_content: content.clone(),
                     message_id,
                     timestamp: chrono::Utc::now().timestamp_millis(),
@@ -233,7 +241,7 @@ impl RoomActor {
         };
 
         let members = self.members.lock().await;
-        for (&member_id, sender) in members.iter() {
+        for (member_id, sender) in members.iter() {
             match sender.try_send(message.clone()) {
                 Ok(_) => debug!("Message sent to member {} in {}", member_id, self.room_id),
                 Err(mpsc::error::TrySendError::Full(_)) => {

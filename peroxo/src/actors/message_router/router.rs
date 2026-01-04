@@ -3,14 +3,15 @@ use super::messages::RouterMessage;
 use crate::actors::persistance_actor::PersistenceMessage;
 use crate::actors::room_actor::RoomMessage;
 use crate::chat::ChatMessage;
+use crate::tenant::TenantUserId;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing::info;
 
 pub struct MessageRouter {
     pub receiver: mpsc::UnboundedReceiver<RouterMessage>,
-    pub users: HashMap<i32, mpsc::Sender<ChatMessage>>,
-    pub online_users: Vec<i32>,
+    pub users: HashMap<TenantUserId, mpsc::Sender<ChatMessage>>,
+    pub online_users: Vec<TenantUserId>,
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     pub persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
     pub rooms: HashMap<String, mpsc::UnboundedSender<RoomMessage>>,
@@ -41,14 +42,15 @@ impl MessageRouter {
         while let Some(message) = self.receiver.recv().await {
             match message {
                 RouterMessage::RegisterUser {
-                    user_id,
+                    tenant_user_id,
                     sender,
                     respond_to,
                 } => {
-                    self.handle_register_user(user_id, sender, respond_to).await;
+                    self.handle_register_user(tenant_user_id, sender, respond_to)
+                        .await;
                 }
-                RouterMessage::UnregisterUser { user_id } => {
-                    self.handle_unregister_user(user_id).await;
+                RouterMessage::UnregisterUser { tenant_user_id } => {
+                    self.handle_unregister_user(tenant_user_id).await;
                 }
                 RouterMessage::SendDirectMessage {
                     from,
@@ -81,16 +83,19 @@ impl MessageRouter {
                         .await;
                 }
                 RouterMessage::JoinRoom {
-                    user_id,
+                    tenant_user_id,
                     room_id,
                     sender,
                     respond_to,
                 } => {
-                    self.handle_join_room(user_id, room_id, sender, respond_to)
+                    self.handle_join_room(tenant_user_id, room_id, sender, respond_to)
                         .await;
                 }
-                RouterMessage::LeaveRoom { user_id, room_id } => {
-                    self.handle_leave_room(user_id, room_id).await;
+                RouterMessage::LeaveRoom {
+                    tenant_user_id,
+                    room_id,
+                } => {
+                    self.handle_leave_room(tenant_user_id, room_id).await;
                 }
                 RouterMessage::SendRoomMessage {
                     room_id,
