@@ -8,132 +8,147 @@ service ChatService {
 
   // Fetch all conversations for a user
   rpc FetchUserConversations(FetchUserConversationsRequest)
-      returns (FetchUserConversationsResponse);
+  returns (FetchUserConversationsResponse);
 
   // Fetch conversation history for a specific conversation
   rpc FetchConversationHistory(FetchConversationHistoryRequest)
-      returns (FetchConversationHistoryResponse);
+  returns (FetchConversationHistoryResponse);
 
   // Get paginated messages for a conversation
   rpc GetPaginatedMessages(GetPaginatedMessagesRequest)
-      returns (GetPaginatedMessagesResponse);
-  
+  returns (GetPaginatedMessagesResponse);
+
   // Write a message to a room
   rpc WriteRoomMessage(WriteRoomMessageRequest) returns (WriteRoomMessageResponse);
 
   // Get paginated messages for a room
   rpc GetPaginatedRoomMessages(GetPaginatedRoomMessagesRequest)
-      returns (GetPaginatedRoomMessagesResponse);
+  returns (GetPaginatedRoomMessagesResponse);
 
-  rpc SyncMessages(SyncMessagesRequest) 
-      returns (SyncMessagesResponse);
+  rpc SyncMessages(SyncMessagesRequest)
+  returns (SyncMessagesResponse);
 
 }
 
 message WriteDMRequest {
-  int32 sender_id = 1;
-  int32 receiver_id = 2;
-  string message = 3;
-  string message_id = 4;
-  int64 timestamp = 5;
+  string project_id      = 1;
+  string conversation_id = 2;
+  string sender_id       = 3;
+  string receiver_id     = 4;
+  string message         = 5;
+  string message_id      = 6;
+  int64  timestamp       = 7;
 }
 
 message WriteDMResponse {
-  bool success = 1;
+  bool   success       = 1;
   string error_message = 2;
 }
 
-message FetchUserConversationsRequest { int32 user_id = 1; }
+message TenantUserId {
+  string project_id = 1;
+  string user_id    = 2;
+}
+
+message FetchUserConversationsRequest {
+  TenantUserId tenant_user_id = 1;
+}
 
 message FetchUserConversationsResponse {
-  bool success = 1;
-  string error_message = 2;
+  bool                      success       = 1;
+  string                    error_message = 2;
   repeated UserConversation conversations = 3;
-}
-
-message DirectMessage {
-  string conversation_id = 1;
-  string message_id = 2;
-  int32 sender_id = 3;
-  int32 recipient_id = 4;
-  string message_text = 5;
-  int64 created_at = 6;
 }
 
 message UserConversation {
   string conversation_id = 1;
-  int64 last_message = 2;
+  int64  last_message    = 2;
 }
 
-message FetchConversationHistoryRequest { string conversation_id = 1; }
+message FetchConversationHistoryRequest {
+  string project_id      = 1;
+  string conversation_id = 2;
+}
 
 message FetchConversationHistoryResponse {
-  bool success = 1;
-  string error_message = 2;
-  repeated ConversationMessage messages = 3;
+  bool                         success       = 1;
+  string                       error_message = 2;
+  repeated ConversationMessage messages      = 3;
 }
 
 message ConversationMessage {
-  string message_id = 1;
+  string message_id   = 1;
   string message_text = 2;
-  int32 sender_id = 3;
-  int32 recipient_id = 4;
+  string sender_id    = 3;
+  string recipient_id = 4;
+  int64  created_at   = 5;
 }
 
 message GetPaginatedMessagesRequest {
-  string conversation_id = 1;
-  // optional
-  string cursor_message_id = 2;
+  string project_id        = 1;
+  string conversation_id   = 2;
+  string cursor_message_id = 3;
 }
 
 message GetPaginatedMessagesResponse {
-  bool success = 1;
-  string error_message = 2;
-  repeated DirectMessage messages = 3;
-  string next_cursor = 4;
+  bool                   success       = 1;
+  string                 error_message = 2;
+  repeated DirectMessage messages      = 3;
+  string                 next_cursor   = 4;
+}
+
+message DirectMessage {
+  string conversation_id = 1;
+  string message_id      = 2;
+  string sender_id       = 3;
+  string recipient_id    = 4;
+  string message_text    = 5;
+  int64  created_at      = 6;
 }
 
 message WriteRoomMessageRequest {
-  string room_id = 1;
-  int32 from = 2;
-  string content = 3;
-  string message_id = 4;
-  int64 timestamp = 5;
+  string project_id = 1;
+  string room_id    = 2;
+  string sender_id  = 3;
+  string content    = 4;
+  string message_id = 5;
+  int64  timestamp  = 6;
 }
 
 message WriteRoomMessageResponse {
-  bool success = 1;
+  bool   success       = 1;
   string error_message = 2;
 }
 
 message RoomMessage {
-  string room_id = 1;
+  string room_id    = 1;
   string message_id = 2;
-  int32 from = 3;
-  string content = 4;
-  int64 created_at = 5;
+  string sender_id  = 3;
+  string content    = 4;
+  int64  created_at = 5;
 }
 
 message GetPaginatedRoomMessagesRequest {
-  string room_id = 1;
-  // optional
-  string cursor_message_id = 2;
+  string project_id        = 1;
+  string room_id           = 2;
+  string cursor_message_id = 3;
 }
 
 message GetPaginatedRoomMessagesResponse {
-  bool success = 1;
-  string error_message = 2;
-  repeated RoomMessage messages = 3;
-  string next_cursor = 4;
+  bool                 success       = 1;
+  string               error_message = 2;
+  repeated RoomMessage messages      = 3;
+  string               next_cursor   = 4;
 }
 
 message SyncMessagesRequest {
-  string conversation_id = 1;
-  string last_message_id = 2; 
+  string project_id      = 1;
+  string conversation_id = 2;
+  string last_message_id = 3;
 }
 
 message SyncMessagesResponse {
-  bool success = 1;
-  string error_message = 2;
-  repeated DirectMessage messages = 3;
+  bool                   success       = 1;
+  string                 error_message = 2;
+  repeated DirectMessage messages      = 3;
 }
