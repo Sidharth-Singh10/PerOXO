@@ -35,6 +35,7 @@ pub enum RoomMessage {
     },
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     GetPaginatedMessages {
+        project_id: String,
         message_id: Option<Uuid>,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
     },
@@ -126,10 +127,11 @@ impl RoomActor {
 
                 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
                 RoomMessage::GetPaginatedMessages {
+                    project_id,
                     message_id,
                     respond_to,
                 } => {
-                    self.handle_get_paginated_messages(message_id, respond_to)
+                    self.handle_get_paginated_messages(project_id, message_id, respond_to)
                         .await;
                 }
             }
@@ -257,12 +259,14 @@ impl RoomActor {
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     async fn handle_get_paginated_messages(
         &self,
+        project_id: String,
         message_id: Option<Uuid>,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
     ) {
         if let Some(persistence_sender) = &self.persistence_sender {
             let (persist_respond_to, persist_response) = oneshot::channel();
             let persist_msg = PersistenceMessage::GetPaginatedMessages {
+                project_id,
                 message_id,
                 conversation_id: self.room_id.clone(),
                 respond_to: persist_respond_to,

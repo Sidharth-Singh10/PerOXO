@@ -46,6 +46,7 @@ impl MessageRouter {
 
     pub async fn handle_direct_message(
         &self,
+        conversation_id: String,
         from: TenantUserId,
         to: TenantUserId,
         content: String,
@@ -61,6 +62,7 @@ impl MessageRouter {
 
                 // fix clones
                 let persist_msg = PersistenceMessage::PersistDirectMessage {
+                    conversation_id,
                     sender_id: from.clone(),
                     receiver_id: to.clone(),
                     message_content: content.clone(),
@@ -146,6 +148,7 @@ impl MessageRouter {
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     pub async fn handle_get_paginated_chat_history(
         &self,
+        project_id: String,
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
@@ -153,6 +156,7 @@ impl MessageRouter {
         if let Some(persistence_sender) = &self.persistence_sender {
             let (persist_respond_to, persist_response) = oneshot::channel();
             let persist_msg = PersistenceMessage::GetPaginatedMessages {
+                project_id,
                 message_id,
                 conversation_id,
                 respond_to: persist_respond_to,
@@ -300,6 +304,7 @@ impl MessageRouter {
     #[cfg(feature = "persistence")]
     pub async fn handle_sync_messages(
         &self,
+        project_id: String,
         conversation_id: String,
         message_id: uuid::Uuid,
         respond_to: oneshot::Sender<Result<Vec<crate::chat::ResponseDirectMessage>, String>>,
@@ -307,6 +312,7 @@ impl MessageRouter {
         if let Some(persistence_sender) = &self.persistence_sender {
             let (persist_respond_to, persist_response) = oneshot::channel();
             let persist_msg = PersistenceMessage::SyncMessages {
+                project_id,
                 conversation_id,
                 message_id,
                 respond_to: persist_respond_to,

@@ -7,6 +7,7 @@ use crate::tenant::TenantUserId;
 pub enum ChatMessage {
     // client to server (naming from client POV, can be improved)
     SendDirectMessage {
+        conversation_id: String,
         to: TenantUserId,
         content: String,
         client_message_id: uuid::Uuid,
@@ -33,6 +34,7 @@ pub enum ChatMessage {
     },
 
     GetPaginatedMessages {
+        project_id: String,
         // paginataion cursor
         message_id: Option<uuid::Uuid>,
         // feat: add limit for pagination
@@ -60,6 +62,7 @@ pub enum ChatMessage {
 
     #[cfg(feature = "persistence")]
     SyncMessages {
+        project_id: String,
         conversation_id: String,
         message_id: uuid::Uuid,
     },
@@ -94,8 +97,8 @@ pub enum PresenceStatus {
 pub struct ResponseDirectMessage {
     pub conversation_id: String,
     pub message_id: Uuid,
-    pub sender_id: i32,
-    pub recipient_id: i32,
+    pub sender_id: String,
+    pub recipient_id: String,
     pub message_text: String,
     pub created_at: i64,
 }

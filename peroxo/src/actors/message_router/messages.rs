@@ -18,6 +18,7 @@ pub enum RouterMessage {
         tenant_user_id: TenantUserId,
     },
     SendDirectMessage {
+        conversation_id: String,
         from: TenantUserId,
         to: TenantUserId,
         content: String,
@@ -29,6 +30,7 @@ pub enum RouterMessage {
     },
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     GetPaginatedMessages {
+        project_id: String,
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
@@ -57,6 +59,7 @@ pub enum RouterMessage {
 
     #[cfg(feature = "persistence")]
     SyncMessages {
+        project_id: String,
         conversation_id: String,
         message_id: uuid::Uuid,
         respond_to: oneshot::Sender<Result<Vec<crate::chat::ResponseDirectMessage>, String>>,

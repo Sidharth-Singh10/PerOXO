@@ -49,6 +49,7 @@ impl PersistenceActor {
         while let Some(message) = self.receiver.recv().await {
             match message {
                 PersistenceMessage::PersistDirectMessage {
+                    conversation_id,
                     sender_id,
                     receiver_id,
                     message_content,
@@ -58,6 +59,7 @@ impl PersistenceActor {
                 } => {
                     let result = self
                         .handle_persist_direct_message(
+                            conversation_id,
                             sender_id,
                             receiver_id,
                             message_content,
@@ -71,12 +73,13 @@ impl PersistenceActor {
                     let _ = respond_to.send(result);
                 }
                 PersistenceMessage::GetPaginatedMessages {
+                    project_id,
                     message_id,
                     conversation_id,
                     respond_to,
                 } => {
                     let result = self
-                        .handle_get_paginated_messages(message_id, conversation_id)
+                        .handle_get_paginated_messages(project_id, message_id, conversation_id)
                         .await;
                     let _ = respond_to.send(result);
                 }
@@ -101,13 +104,16 @@ impl PersistenceActor {
                 }
 
                 PersistenceMessage::SyncMessages {
+                    project_id,
                     conversation_id,
                     message_id,
                     respond_to,
                 } => {
                     #[cfg(feature = "persistence")]
                     {
-                        let result = self.handle_sync_messages(conversation_id, message_id).await;
+                        let result = self
+                            .handle_sync_messages(project_id, conversation_id, message_id)
+                            .await;
                         let _ = respond_to.send(result);
                     }
                 }

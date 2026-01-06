@@ -5,11 +5,11 @@ use crate::UserToken;
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TenantUserId {
     pub project_id: String,
-    pub user_id: i32,
+    pub user_id: String,
 }
 
 impl TenantUserId {
-    pub fn new(project_id: String, user_id: i32) -> Self {
+    pub fn new(project_id: String, user_id: String) -> Self {
         Self {
             project_id,
             user_id,
@@ -17,10 +17,9 @@ impl TenantUserId {
     }
 
     pub fn from_token(token: &UserToken) -> Result<Self, Box<dyn std::error::Error>> {
-        let user_id = token.user_id.parse::<i32>()?;
         Ok(Self {
             project_id: token.project_id.clone(),
-            user_id,
+            user_id: token.user_id.clone(),
         })
     }
 }

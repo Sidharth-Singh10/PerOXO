@@ -7,6 +7,7 @@ use tracing::{debug, error};
 use uuid::Uuid;
 
 pub async fn handle_direct_message(
+    conversation_id: String,
     user_token: TenantUserId,
     to: TenantUserId,
     content: String,
@@ -22,6 +23,7 @@ pub async fn handle_direct_message(
     let server_message_id = Uuid::now_v1(&NODE_ID);
 
     let router_msg = RouterMessage::SendDirectMessage {
+        conversation_id,
         from: user_token.clone(),
         to,
         content,

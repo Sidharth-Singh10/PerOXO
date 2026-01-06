@@ -128,11 +128,13 @@ impl UserSession {
             while let Some(Ok(Message::Text(text))) = ws_receiver.next().await {
                 match serde_json::from_str::<ChatMessage>(&text) {
                     Ok(ChatMessage::SendDirectMessage {
+                        conversation_id,
                         to,
                         content,
                         client_message_id,
                     }) => {
                         if let Err(e) = handlers::handle_direct_message(
+                            conversation_id,
                             tenant_user_id_clone.clone(),
                             to,
                             content,
@@ -147,11 +149,13 @@ impl UserSession {
                     }
                     #[cfg(feature = "persistence")]
                     Ok(ChatMessage::GetPaginatedMessages {
+                        project_id,
                         message_id,
                         conversation_id,
                     }) => {
                         let (respond_to, response) = oneshot::channel();
                         let router_msg = RouterMessage::GetPaginatedMessages {
+                            project_id,
                             message_id,
                             conversation_id,
                             respond_to,
@@ -220,11 +224,13 @@ impl UserSession {
 
                     #[cfg(feature = "persistence")]
                     Ok(ChatMessage::SyncMessages {
+                        project_id,
                         conversation_id,
                         message_id,
                     }) => {
                         let (respond_to, response) = oneshot::channel();
                         let router_msg = RouterMessage::SyncMessages {
+                            project_id,
                             conversation_id,
                             message_id,
                             respond_to,
