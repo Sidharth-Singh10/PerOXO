@@ -70,6 +70,7 @@ impl DatabaseMigrations {
         self.create_projects_table().await?;
         self.create_direct_messages_table().await?;
         self.create_user_conversations_table().await?;
+        self.create_dm_lookup_table().await?;
         self.create_room_messages_table().await?;
         self.create_project_rooms_table().await?;
 
@@ -132,6 +133,25 @@ impl DatabaseMigrations {
         let prepared = self.session.prepare(query).await?;
         self.session.execute_unpaged(&prepared, &[]).await?;
         println!("Table 'user_conversations' created successfully");
+        Ok(())
+    }
+
+    async fn create_dm_lookup_table(&self) -> Result<(), Box<dyn Error>> {
+        let query = r#"
+            CREATE TABLE IF NOT EXISTS dm_lookup (
+                project_id text,
+                user_id_1 text,
+                user_id_2 text,
+                conversation_id text,
+                created_at timestamp,
+                PRIMARY KEY ((project_id, user_id_1, user_id_2))
+            )
+        "#;
+
+        println!("Creating table 'dm_lookup'...");
+        let prepared = self.session.prepare(query).await?;
+        self.session.execute_unpaged(&prepared, &[]).await?;
+        println!("Table 'dm_lookup' created successfully");
         Ok(())
     }
 

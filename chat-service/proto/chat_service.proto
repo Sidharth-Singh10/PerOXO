@@ -28,7 +28,11 @@ service ChatService {
   rpc SyncMessages(SyncMessagesRequest)
   returns (SyncMessagesResponse);
 
-}
+  // Get or create a conversation between two users
+  rpc GetSertConversation(GetSertConversationRequest)
+  returns (GetSertConversationResponse);
+
+} 
 
 message WriteDMRequest {
   string project_id      = 1;
@@ -151,4 +155,17 @@ message SyncMessagesResponse {
   bool                   success       = 1;
   string                 error_message = 2;
   repeated DirectMessage messages      = 3;
+}
+
+message GetSertConversationRequest {
+  string project_id = 1;
+  string user_id_1  = 2;
+  string user_id_2  = 3;
+}
+
+message GetSertConversationResponse {
+  bool   success         = 1;
+  string error_message   = 2;
+  string conversation_id = 3;
+  bool   created_new     = 4; // Useful for UI to know if they should show an empty chat
 }

@@ -7,6 +7,8 @@ use crate::chat_service::GetPaginatedMessagesRequest;
 use crate::chat_service::GetPaginatedMessagesResponse;
 use crate::chat_service::GetPaginatedRoomMessagesRequest;
 use crate::chat_service::GetPaginatedRoomMessagesResponse;
+use crate::chat_service::GetSertConversationRequest;
+use crate::chat_service::GetSertConversationResponse;
 use crate::chat_service::RoomMessage;
 use crate::chat_service::SyncMessagesRequest;
 use crate::chat_service::SyncMessagesResponse;
@@ -14,6 +16,7 @@ use crate::chat_service::WriteRoomMessageRequest;
 use crate::chat_service::WriteRoomMessageResponse;
 use crate::queries::fetch_messages_after;
 use crate::queries::fetch_paginated_room_messages;
+use crate::queries::getsert_conversation_id;
 use crate::queries::write_direct_message;
 use crate::queries::write_room_message;
 use crate::utils::DbRoomMessageEx;
@@ -57,6 +60,54 @@ impl ChatServiceImpl {
 
 #[tonic::async_trait]
 impl ChatService for ChatServiceImpl {
+    async fn get_sert_conversation(
+        &self,
+        request: Request<GetSertConversationRequest>,
+    ) -> Result<Response<GetSertConversationResponse>, Status> {
+        let req = request.into_inner();
+
+        // 1. Validation
+        if req.project_id.is_empty() || req.user_id_1.is_empty() || req.user_id_2.is_empty() {
+            return Ok(Response::new(GetSertConversationResponse {
+                success: false,
+                error_message: "project_id, user_id_1, and user_id_2 are required".to_string(),
+                conversation_id: String::new(),
+                created_new: false,
+            }));
+        }
+
+        if req.user_id_1 == req.user_id_2 {
+            return Ok(Response::new(GetSertConversationResponse {
+                success: false,
+                error_message: "Cannot create conversation with self".to_string(),
+                conversation_id: String::new(),
+                created_new: false,
+            }));
+        }
+
+        match getsert_conversation_id(
+            &self.session,
+            &req.project_id,
+            &req.user_id_1,
+            &req.user_id_2,
+        )
+        .await
+        {
+            Ok((conversation_id, created_new)) => Ok(Response::new(GetSertConversationResponse {
+                success: true,
+                error_message: String::new(),
+                conversation_id,
+                created_new,
+            })),
+            Err(e) => Ok(Response::new(GetSertConversationResponse {
+                success: false,
+                error_message: e.to_string(),
+                conversation_id: String::new(),
+                created_new: false,
+            })),
+        }
+    }
+
     async fn write_dm(
         &self,
         request: Request<WriteDmRequest>,

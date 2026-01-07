@@ -327,6 +327,54 @@ pub async fn write_room_message(
     Ok(())
 }
 
+pub async fn getsert_conversation_id(
+    session: &Session,
+    project_id: &str,
+    user_a: &str,
+    user_b: &str,
+) -> Result<(String, bool), Box<dyn std::error::Error + Send + Sync>> {
+    let (user_id_1, user_id_2) = if user_a < user_b {
+        (user_a, user_b)
+    } else {
+        (user_b, user_a)
+    };
+
+    let select_query = r#"
+        SELECT conversation_id 
+        FROM affinity.dm_lookup 
+        WHERE project_id = ? AND user_id_1 = ? AND user_id_2 = ?
+    "#;
+
+    let result = session
+        .query_unpaged(select_query, (project_id, user_id_1, user_id_2))
+        .await?;
+
+    if let Ok(rows_result) = result.into_rows_result() {
+        let mut typed_rows = rows_result.rows::<(String,)>()?;
+
+        if let Some(row_result) = typed_rows.next() {
+            let (existing_conv_id,) = row_result?;
+            return Ok((existing_conv_id, false));
+        }
+    }
+
+    let new_conversation_id = Uuid::new_v4().to_string();
+
+    let insert_query = r#"
+        INSERT INTO affinity.dm_lookup (project_id, user_id_1, user_id_2, conversation_id, created_at)
+        VALUES (?, ?, ?, ?, toTimestamp(now()))
+    "#;
+
+    session
+        .query_unpaged(
+            insert_query,
+            (project_id, user_id_1, user_id_2, &new_conversation_id),
+        )
+        .await?;
+
+    Ok((new_conversation_id, true))
+}
+
 // pub fn create_dm(
 //     sender_id: i32,
 //     recipient_id: i32,
