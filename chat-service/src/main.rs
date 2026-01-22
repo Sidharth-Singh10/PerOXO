@@ -19,7 +19,7 @@ mod queries;
 #[cfg(feature = "rabbit")]
 mod rabbit;
 use crate::chat_service::chat_service_server::ChatServiceServer;
-use crate::migrations::migrations::run_database_migrations;
+use crate::migrations::migration::run_database_migrations;
 pub mod chat_service {
     tonic::include_proto!("chat_service");
 }

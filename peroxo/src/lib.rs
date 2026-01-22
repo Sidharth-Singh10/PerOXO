@@ -9,17 +9,19 @@ use axum::{
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
+    handlers::conversation::getsert_conversation_id,
     metrics::{metrics_handler, metrics_middleware},
     socket::dm_socket,
     state::PerOxoState,
-    tenant::TenantUserId,
 };
 
 tonic::include_proto!("auth_service");
+tonic::include_proto!("chat_service");
 
 pub mod actors;
 pub mod chat;
 pub mod connections;
+mod handlers;
 pub mod metrics;
 #[cfg(feature = "mongo_db")]
 pub mod mongo_db;
@@ -73,7 +75,7 @@ async fn ws_handler(
         Err(err) => return err.into_response(),
     };
 
-    let tenant_user_id = match TenantUserId::from_token(&user_token) {
+    let tenant_user_id = match tenant::TenantUserId::from_token(&user_token) {
         Ok(id) => id,
         Err(_) => return (StatusCode::UNAUTHORIZED, "Invalid tenant token").into_response(),
     };
@@ -84,6 +86,7 @@ pub fn peroxo_route(state: Arc<PerOxoState>) -> Router {
     Router::new()
         .route("/ws", any(ws_handler))
         .route("/metrics", get(metrics_handler))
+        .route("/conversations", get(getsert_conversation_id))
         .layer(middleware::from_fn(metrics_middleware))
         .with_state(state)
 }

@@ -29,10 +29,10 @@ service ChatService {
   returns (SyncMessagesResponse);
 
   // Get or create a conversation between two users
-  rpc GetOrCreateConversation(GetOrCreateConversationRequest)
-  returns (GetOrCreateConversationResponse);
+  rpc GetSertConversation(GetSertConversationRequest)
+  returns (GetSertConversationResponse);
 
-} 
+}
 
 message WriteDMRequest {
   string project_id      = 1;
@@ -157,13 +157,13 @@ message SyncMessagesResponse {
   repeated DirectMessage messages      = 3;
 }
 
-message GetOrCreateConversationRequest {
+message GetSertConversationRequest {
   string project_id = 1;
   string user_id_1  = 2;
   string user_id_2  = 3;
 }
 
-message GetOrCreateConversationResponse {
+message GetSertConversationResponse {
   bool   success         = 1;
   string error_message   = 2;
   string conversation_id = 3;

@@ -18,6 +18,8 @@ pub struct PerOxoState {
     pub connection_manager: Arc<ConnectionManager>,
     pub router_sender: mpsc::UnboundedSender<RouterMessage>,
     pub auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
+    #[cfg(feature = "persistence")]
+    pub chat_client: ChatServiceClient<Channel>,
 }
 
 impl PerOxoState {
@@ -27,10 +29,13 @@ impl PerOxoState {
         #[cfg(feature = "mongo_db")] mongo_config: MongoDbConfig,
         auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        #[cfg(feature = "persistence")]
+        let chat_service_client_clone = chat_service_client.clone();
+
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
         let (persistence_actor, persistence_sender) = PersistenceActor::new(
             #[cfg(feature = "persistence")]
-            chat_service_client,
+            chat_service_client_clone,
             #[cfg(feature = "mongo_db")]
             mango_db_client,
             #[cfg(feature = "mongo_db")]
@@ -53,6 +58,8 @@ impl PerOxoState {
             connection_manager,
             router_sender,
             auth_client,
+            #[cfg(feature = "persistence")]
+            chat_client: chat_service_client,
         })
     }
 }

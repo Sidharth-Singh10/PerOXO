@@ -6,7 +6,7 @@ use scylla::{
         Consistency,
         batch::{Batch, BatchType},
     },
-    value::CqlTimestamp,
+    value::{CqlTimestamp, CqlTimeuuid},
 };
 use uuid::Uuid;
 
@@ -259,7 +259,7 @@ pub async fn write_direct_message(
         (
             &message.project_id,
             &message.conversation_id,
-            message.message_id,
+            CqlTimeuuid::from(message.message_id),
             &message.sender_id,
             &message.recipient_id,
             &message.message_text,

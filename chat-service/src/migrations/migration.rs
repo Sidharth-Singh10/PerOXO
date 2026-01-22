@@ -42,7 +42,7 @@ impl DatabaseMigrations {
 
     async fn create_keyspace(&self) -> Result<(), Box<dyn Error>> {
         let query = r#"
-            CREATE KEYSPACE IF NOT EXISTS affinity2
+            CREATE KEYSPACE IF NOT EXISTS affinity
             WITH REPLICATION = {
                 'class': 'SimpleStrategy',
                 'replication_factor': 1
@@ -52,17 +52,17 @@ impl DatabaseMigrations {
         println!("Creating keyspace 'affinity'...");
         let prepared = self.session.prepare(query).await?;
         self.session.execute_unpaged(&prepared, &[]).await?;
-        println!("Keyspace 'affinity2' created successfully");
+        println!("Keyspace 'affinity' created successfully");
         Ok(())
     }
 
     async fn use_keyspace(&self) -> Result<(), Box<dyn Error>> {
-        let query = "USE affinity2";
+        let query = "USE affinity";
 
-        println!("Switching to keyspace 'affinity2'...");
+        println!("Switching to keyspace 'affinity'...");
         let prepared = self.session.prepare(query).await?;
         self.session.execute_unpaged(&prepared, &[]).await?;
-        println!("Now using keyspace 'affinity2'");
+        println!("Now using keyspace 'affinity'");
         Ok(())
     }
 
@@ -195,16 +195,23 @@ impl DatabaseMigrations {
         println!("Table 'project_rooms' created successfully");
         Ok(())
     }
-
-    pub fn get_session(&self) -> Arc<Session> {
-        Arc::clone(&self.session)
-    }
 }
 
 pub async fn run_database_migrations(node: &str) -> Result<Arc<Session>, Box<dyn Error>> {
     let migrations = DatabaseMigrations::new(node).await?;
+
+    // 2. Run the migrations
     migrations.run_migrations().await?;
-    Ok(migrations.get_session())
+
+    println!("Initializing application session with keyspace 'affinity'...");
+
+    let app_session = SessionBuilder::new()
+        .known_node(node)
+        .use_keyspace("affinity", true)
+        .build()
+        .await?;
+
+    Ok(Arc::new(app_session))
 }
 
 #[cfg(test)]
