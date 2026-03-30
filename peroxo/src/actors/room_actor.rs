@@ -9,8 +9,8 @@ use crate::chat::MessageStatus;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use tracing::error;
 
-use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{Mutex, mpsc, oneshot};
+use std::collections::HashMap;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -44,7 +44,7 @@ pub enum RoomMessage {
 pub struct RoomActor {
     room_id: String,
     receiver: mpsc::UnboundedReceiver<RoomMessage>,
-    members: Arc<Mutex<HashMap<TenantUserId, mpsc::Sender<ChatMessage>>>>,
+    members: HashMap<TenantUserId, mpsc::Sender<ChatMessage>>,
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
 }
@@ -60,7 +60,7 @@ impl RoomActor {
         let actor = Self {
             room_id,
             receiver,
-            members: Arc::new(Mutex::new(HashMap::new())),
+            members: HashMap::new(),
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
             persistence_sender: Some(persistence_sender),
         };
@@ -71,68 +71,28 @@ impl RoomActor {
     pub async fn run(mut self) {
         info!("Room actor started for room: {}", self.room_id);
 
-        {
-            let members = Arc::clone(&self.members);
-            let room_id = self.room_id.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-                info!("Started cleanup task for room {}", room_id);
-                loop {
-                    interval.tick().await;
-                    let mut members_lock = members.lock().await;
-                    let before = members_lock.len();
-                    members_lock.retain(|_, sender| !sender.is_closed());
-                    let after = members_lock.len();
-                    if before != after {
-                        debug!("Cleaned up {} stale users from {}", before - after, room_id);
+        let mut cleanup_interval =
+            tokio::time::interval(std::time::Duration::from_secs(60));
+
+        loop {
+            tokio::select! {
+                message = self.receiver.recv() => {
+                    match message {
+                        Some(msg) => self.handle_message(msg).await,
+                        None => break,
                     }
                 }
-            });
-        }
-
-        while let Some(message) = self.receiver.recv().await {
-            match message {
-                RoomMessage::AddMember {
-                    tenant_user_id,
-                    sender,
-                    respond_to,
-                } => {
-                    self.handle_add_member(tenant_user_id, sender, respond_to)
-                        .await;
-                }
-                RoomMessage::RemoveMember { tenant_user_id } => {
-                    self.handle_remove_member(tenant_user_id).await;
-                }
-                RoomMessage::SendMessage {
-                    from,
-                    content,
-                    message_id,
-                    #[allow(unused_variables)]
-                    respond_to,
-                } => {
-                    self.handle_send_message(
-                        from,
-                        content,
-                        message_id,
-                        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-                        respond_to,
-                    )
-                    .await;
-                }
-                RoomMessage::GetMembers { respond_to } => {
-                    let members: Vec<TenantUserId> =
-                        self.members.lock().await.keys().cloned().collect();
-                    let _ = respond_to.send(members);
-                }
-
-                #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-                RoomMessage::GetPaginatedMessages {
-                    project_id,
-                    message_id,
-                    respond_to,
-                } => {
-                    self.handle_get_paginated_messages(project_id, message_id, respond_to)
-                        .await;
+                _ = cleanup_interval.tick() => {
+                    let before = self.members.len();
+                    self.members.retain(|_, sender| !sender.is_closed());
+                    let after = self.members.len();
+                    if before != after {
+                        debug!(
+                            "Cleaned up {} stale users from {}",
+                            before - after,
+                            self.room_id
+                        );
+                    }
                 }
             }
         }
@@ -140,34 +100,73 @@ impl RoomActor {
         info!("Room actor stopped for room: {}", self.room_id);
     }
 
-    async fn handle_add_member(
+    async fn handle_message(&mut self, message: RoomMessage) {
+        match message {
+            RoomMessage::AddMember {
+                tenant_user_id,
+                sender,
+                respond_to,
+            } => {
+                self.handle_add_member(tenant_user_id, sender, respond_to);
+            }
+            RoomMessage::RemoveMember { tenant_user_id } => {
+                self.handle_remove_member(tenant_user_id);
+            }
+            RoomMessage::SendMessage {
+                from,
+                content,
+                message_id,
+                #[allow(unused_variables)]
+                respond_to,
+            } => {
+                self.handle_send_message(
+                    from,
+                    content,
+                    message_id,
+                    #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+                    respond_to,
+                );
+            }
+            RoomMessage::GetMembers { respond_to } => {
+                let members: Vec<TenantUserId> =
+                    self.members.keys().cloned().collect();
+                let _ = respond_to.send(members);
+            }
+            #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+            RoomMessage::GetPaginatedMessages {
+                project_id,
+                message_id,
+                respond_to,
+            } => {
+                self.handle_get_paginated_messages(project_id, message_id, respond_to);
+            }
+        }
+    }
+
+    fn handle_add_member(
         &mut self,
         tenant_user_id: TenantUserId,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     ) {
-        //fix:  lock free???
-        if self.members.lock().await.contains_key(&tenant_user_id) {
+        if self.members.contains_key(&tenant_user_id) {
             let _ = respond_to.send(Err("User already in room".to_string()));
             return;
         }
 
-        self.members
-            .lock()
-            .await
-            .insert(tenant_user_id.clone(), sender);
+        self.members.insert(tenant_user_id.clone(), sender);
         debug!("User {} added to room {}", tenant_user_id, self.room_id);
 
         let _ = respond_to.send(Ok(()));
     }
 
-    async fn handle_remove_member(&mut self, tenant_user_id: TenantUserId) {
-        if self.members.lock().await.remove(&tenant_user_id).is_some() {
+    fn handle_remove_member(&mut self, tenant_user_id: TenantUserId) {
+        if self.members.remove(&tenant_user_id).is_some() {
             debug!("User {} removed from room {}", tenant_user_id, self.room_id);
         }
     }
 
-    async fn handle_send_message(
+    fn handle_send_message(
         &self,
         from: TenantUserId,
         content: String,
@@ -234,7 +233,6 @@ impl RoomActor {
             }
         }
 
-        // Broadcast to all members except sender
         let message = ChatMessage::RoomMessage {
             room_id: self.room_id.clone(),
             from,
@@ -242,8 +240,7 @@ impl RoomActor {
             message_id,
         };
 
-        let members = self.members.lock().await;
-        for (member_id, sender) in members.iter() {
+        for (member_id, sender) in self.members.iter() {
             match sender.try_send(message.clone()) {
                 Ok(_) => debug!("Message sent to member {} in {}", member_id, self.room_id),
                 Err(mpsc::error::TrySendError::Full(_)) => {
@@ -257,7 +254,7 @@ impl RoomActor {
     }
 
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-    async fn handle_get_paginated_messages(
+    fn handle_get_paginated_messages(
         &self,
         project_id: String,
         message_id: Option<Uuid>,
