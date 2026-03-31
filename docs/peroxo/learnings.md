@@ -1,0 +1,9 @@
+## Persistence Actor Issue:
+
+We have a real-time chat server in Rust built on Tokio using an actor model — actors communicate over mpsc channels and use oneshot channels for request-response. The architecture has three layers: UserSession talks to a MessageRouter, which talks to a PersistenceActor and per-room RoomActors.
+
+The problem I identified was in the persistence layer. Every time the router needs to persist a message, it creates a second oneshot channel and spawns a bridging task whose only job is to await the inner response and relay it onto the outer caller's oneshot. So a single SendDirectMessage incurs two oneshot allocations and two tokio::spawn calls just for response plumbing — and this pattern repeats across six different message types.
+
+Worse, the persistence actor processes messages sequentially in a loop, but the underlying client is a tonic gRPC client, which is Clone + Send + Sync and designed for concurrent use. The actor is artificially serializing inherently parallel I/O, creating a throughput bottleneck under load. It also has no timeouts — the code labels a dropped sender as "timeout" but there's no actual tokio::time::timeout, so a hung gRPC call blocks the entire persistence queue indefinitely.
+
+The fix I proposed is replacing the PersistenceActor with an `Arc<PersistenceService>` same struct, same handler methods, but callers invoke them directly as async functions instead of routing through a message queue. This eliminates the message enum, the actor loop, all five inner oneshot allocations, and all five bridging spawns. Persistence calls become fully concurrent. The UserSession → Router oneshot stays because the router genuinely needs serialized access to mutable state (user registry, room map), and the RoomActor stays because room membership mutations need serialization. Only the persistence layer changes — because it had no mutable state worth protecting.
