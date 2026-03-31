@@ -6,7 +6,7 @@ use crate::actors::{
 #[cfg(feature = "persistence")]
 use crate::actors::chat_service::chat_service_client::ChatServiceClient;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use crate::actors::persistance_actor::PersistenceActor;
+use crate::actors::persistance_actor::PersistenceService;
 #[cfg(feature = "mongo_db")]
 use crate::mongo_db::config::MongoDbConfig;
 
@@ -33,26 +33,22 @@ impl PerOxoState {
         let chat_service_client_clone = chat_service_client.clone();
 
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        let (persistence_actor, persistence_sender) = PersistenceActor::new(
+        let persistence = Arc::new(PersistenceService::new(
             #[cfg(feature = "persistence")]
             chat_service_client_clone,
             #[cfg(feature = "mongo_db")]
             mango_db_client,
             #[cfg(feature = "mongo_db")]
             mongo_config,
-        )
-        .await?;
+        ));
 
         let (router, router_sender) = MessageRouter::new(
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-            persistence_sender,
+            persistence,
         );
         let connection_manager = Arc::new(ConnectionManager::new(router_sender.clone()));
 
-        // Spawn actors
         tokio::spawn(router.run());
-        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        tokio::spawn(persistence_actor.run());
 
         Ok(Self {
             connection_manager,

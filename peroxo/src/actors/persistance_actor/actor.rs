@@ -1,19 +1,12 @@
-use tokio::sync::mpsc;
-use tracing::info;
-
-use super::messages::PersistenceMessage;
-
 #[cfg(feature = "persistence")]
 use crate::actors::chat_service::chat_service_client::ChatServiceClient;
-use crate::metrics::Metrics;
 #[cfg(feature = "persistence")]
 use tonic::transport::Channel;
 
 #[cfg(feature = "mongo_db")]
 use crate::mongo_db::config::MongoDbConfig;
 
-pub struct PersistenceActor {
-    pub receiver: mpsc::UnboundedReceiver<PersistenceMessage>,
+pub struct PersistenceService {
     #[cfg(feature = "persistence")]
     pub chat_service_client: ChatServiceClient<Channel>,
     #[cfg(feature = "mongo_db")]
@@ -22,104 +15,19 @@ pub struct PersistenceActor {
     pub mongo_config: MongoDbConfig,
 }
 
-impl PersistenceActor {
-    pub async fn new(
+impl PersistenceService {
+    pub fn new(
         #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
         #[cfg(feature = "mongo_db")] mango_db_client: mongodb::Client,
         #[cfg(feature = "mongo_db")] mongo_config: MongoDbConfig,
-    ) -> Result<(Self, mpsc::UnboundedSender<PersistenceMessage>), Box<dyn std::error::Error>> {
-        let (sender, receiver) = mpsc::unbounded_channel();
-
-        let actor = Self {
-            receiver,
+    ) -> Self {
+        Self {
             #[cfg(feature = "persistence")]
             chat_service_client,
             #[cfg(feature = "mongo_db")]
             mango_db_client,
             #[cfg(feature = "mongo_db")]
             mongo_config,
-        };
-
-        Ok((actor, sender))
-    }
-
-    pub async fn run(mut self) {
-        info!("Persistence actor started");
-
-        while let Some(message) = self.receiver.recv().await {
-            match message {
-                PersistenceMessage::PersistDirectMessage {
-                    conversation_id,
-                    sender_id,
-                    receiver_id,
-                    message_content,
-                    message_id,
-                    timestamp,
-                    respond_to,
-                } => {
-                    let result = self
-                        .handle_persist_direct_message(
-                            conversation_id,
-                            sender_id,
-                            receiver_id,
-                            message_content,
-                            message_id,
-                            timestamp,
-                        )
-                        .await;
-
-                    Metrics::websocket_message_persisted();
-
-                    let _ = respond_to.send(result);
-                }
-                PersistenceMessage::GetPaginatedMessages {
-                    project_id,
-                    message_id,
-                    conversation_id,
-                    respond_to,
-                } => {
-                    let result = self
-                        .handle_get_paginated_messages(project_id, message_id, conversation_id)
-                        .await;
-                    let _ = respond_to.send(result);
-                }
-                PersistenceMessage::PersistRoomMessage {
-                    room_id,
-                    sender_id,
-                    message_content,
-                    message_id,
-                    timestamp,
-                    respond_to,
-                } => {
-                    let result = self
-                        .handle_persist_room_message(
-                            room_id,
-                            sender_id,
-                            message_content,
-                            message_id,
-                            timestamp,
-                        )
-                        .await;
-                    let _ = respond_to.send(result);
-                }
-
-                PersistenceMessage::SyncMessages {
-                    project_id,
-                    conversation_id,
-                    message_id,
-                    respond_to,
-                } => {
-                    #[cfg(feature = "persistence")]
-                    {
-                        let result = self
-                            .handle_sync_messages(project_id, conversation_id, message_id)
-                            .await;
-                        let _ = respond_to.send(result);
-                    }
-                }
-            }
         }
-
-        info!("Persistence actor stopped");
     }
 }

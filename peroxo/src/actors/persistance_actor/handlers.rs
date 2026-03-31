@@ -1,6 +1,6 @@
 use tracing::{debug, error};
 
-use super::actor::PersistenceActor;
+use super::actor::PersistenceService;
 
 #[cfg(feature = "persistence")]
 use crate::actors::chat_service::WriteDmResponse;
@@ -9,9 +9,10 @@ use crate::{
     tenant::TenantUserId,
 };
 
-impl PersistenceActor {
+impl PersistenceService {
+    #[allow(unreachable_code, unused_variables)]
     pub async fn handle_persist_direct_message(
-        &mut self,
+        &self,
         conversation_id: String,
         tenant_sender_id: TenantUserId,
         tenant_receiver_id: TenantUserId,
@@ -21,7 +22,11 @@ impl PersistenceActor {
     ) -> Result<(), String> {
         #[cfg(feature = "mongo_db")]
         {
+            use crate::metrics::Metrics;
             use crate::mongo_db::models::DirectMessageId;
+
+            let sender_id = tenant_sender_id.user_id.clone();
+            let receiver_id = tenant_receiver_id.user_id.clone();
 
             let message = crate::mongo_db::models::DirectMessage {
                 id: DirectMessageId {
@@ -33,8 +38,8 @@ impl PersistenceActor {
                     message_id: message_id.to_string(),
                 },
 
-                sender_id,
-                recipient_id: receiver_id,
+                sender_id: sender_id.parse::<i32>().unwrap_or_default(),
+                recipient_id: receiver_id.parse::<i32>().unwrap_or_default(),
                 message_text: message_content.clone(),
                 created_at: mongodb::bson::DateTime::from_millis(timestamp),
             };
@@ -54,26 +59,25 @@ impl PersistenceActor {
                 "Successfully persisted message to MongoDB from {} to {}",
                 sender_id, receiver_id
             );
-            Ok(())
+            return Ok(());
         }
 
         #[cfg(feature = "persistence")]
-        // Make the gRPC call with retry logic
         {
-            let start = std::time::Instant::now();
+            use crate::actors::chat_service::WriteDmRequest;
 
-            match self
-                .write_dm_with_retry(
-                    tenant_sender_id.project_id.clone(),
-                    conversation_id.clone(),
-                    tenant_sender_id.user_id.clone(),
-                    tenant_receiver_id.user_id.clone(),
-                    message_content,
-                    message_id,
-                    timestamp,
-                    3,
-                )
-                .await
+            let start = std::time::Instant::now();
+            let request = WriteDmRequest {
+                project_id: tenant_sender_id.project_id.clone(),
+                conversation_id: conversation_id.clone(),
+                sender_id: tenant_sender_id.user_id.clone(),
+                receiver_id: tenant_receiver_id.user_id.clone(),
+                message: message_content,
+                message_id: message_id.to_string(),
+                timestamp,
+            };
+
+            match self.write_dm_with_retry(request, 3).await
             {
                 Ok(response) => {
                     let write_dm_response = response.into_inner();
@@ -116,17 +120,14 @@ impl PersistenceActor {
         let conv_col =
             db.collection::<crate::mongo_db::models::UserConversation>("user_conversations");
 
-        // Start a session for transaction
         let mut session = client.start_session().await?;
         session.start_transaction().await?;
 
-        // Insert the message
         messages_col
             .insert_one(message.clone())
             .session(&mut session)
             .await?;
 
-        // Update last_message for sender
         conv_col
         .update_one(
             doc! { "_id.user_id": message.sender_id, "_id.conversation_id": &message.id.conversation_id },
@@ -136,7 +137,6 @@ impl PersistenceActor {
         .session(&mut session)
         .await?;
 
-        // Update last_message for recipient
         conv_col
         .update_one(
             doc! { "_id.user_id": message.recipient_id, "_id.conversation_id": &message.id.conversation_id },
@@ -153,37 +153,18 @@ impl PersistenceActor {
 
     #[cfg(feature = "persistence")]
     pub async fn write_dm_with_retry(
-        &mut self,
-        project_id: String,
-        conversation_id: String,
-        sender_id: String,
-        receiver_id: String,
-        message_content: String,
-        message_id: uuid::Uuid,
-        timestamp: i64,
+        &self,
+        request: crate::actors::chat_service::WriteDmRequest,
         max_retries: u32,
     ) -> Result<tonic::Response<WriteDmResponse>, tonic::Status> {
+        let mut client = self.chat_service_client.clone();
         let mut attempts = 0;
         let mut last_error = None;
 
-        // Maybe a Better Retry Logic
         while attempts <= max_retries {
             use tonic::Request;
 
-            use crate::actors::chat_service::WriteDmRequest;
-
-            // cloneing the variables for the request, because network calls are heavier than cloning
-            let request = Request::new(WriteDmRequest {
-                project_id: project_id.clone(),
-                conversation_id: conversation_id.clone(),
-                sender_id: sender_id.clone(),
-                receiver_id: receiver_id.clone(),
-                message: message_content.clone(),
-                message_id: message_id.to_string(),
-                timestamp,
-            });
-
-            match self.chat_service_client.write_dm(request).await {
+            match client.write_dm(Request::new(request.clone())).await {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     attempts += 1;
@@ -209,8 +190,9 @@ impl PersistenceActor {
         Err(last_error.unwrap())
     }
 
+    #[allow(unreachable_code, unused_variables)]
     pub async fn handle_get_paginated_messages(
-        &mut self,
+        &self,
         project_id: String,
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
@@ -228,6 +210,7 @@ impl PersistenceActor {
 
             use crate::actors::chat_service::GetPaginatedMessagesRequest;
 
+            let mut client = self.chat_service_client.clone();
             let cursor_message_id = message_id.map(|id| id.to_string()).unwrap_or_default();
 
             let request = Request::new(GetPaginatedMessagesRequest {
@@ -236,11 +219,7 @@ impl PersistenceActor {
                 cursor_message_id,
             });
 
-            match self
-                .chat_service_client
-                .get_paginated_messages(request)
-                .await
-            {
+            match client.get_paginated_messages(request).await {
                 Ok(response) => {
                     let get_paginated_response = response.into_inner();
                     if get_paginated_response.success {
@@ -302,14 +281,12 @@ impl PersistenceActor {
             .database(&self.mongo_config.database_name);
         let messages_col = db.collection::<MongoDirectMessage>("direct_messages");
 
-        // Build the query
         let mut filter = doc! { "_id.conversation_id": &conversation_id };
 
         if let Some(cursor_id) = cursor {
             filter.insert("_id.message_id", doc! { "$lt": cursor_id.to_string() });
         }
 
-        // Fetch messages with limit
         let mut cursor = messages_col
             .find(filter)
             .sort(doc! { "_id.message_id": -1 })
@@ -329,8 +306,8 @@ impl PersistenceActor {
                 conversation_id: doc.id.conversation_id,
                 message_id: uuid::Uuid::parse_str(&doc.id.message_id)
                     .unwrap_or_else(|_| uuid::Uuid::new_v4()),
-                sender_id: doc.sender_id,
-                recipient_id: doc.recipient_id,
+                sender_id: doc.sender_id.to_string(),
+                recipient_id: doc.recipient_id.to_string(),
                 message_text: doc.message_text,
                 created_at: doc.created_at.timestamp_millis(),
             });
@@ -353,24 +330,25 @@ impl PersistenceActor {
 
     #[cfg(feature = "persistence")]
     pub async fn handle_persist_room_message(
-        &mut self,
+        &self,
         room_id: String,
         sender_id: TenantUserId,
         message_content: String,
         message_id: uuid::Uuid,
         timestamp: i64,
     ) -> Result<(), String> {
-        match self
-            .write_room_message_with_retry(
-                sender_id.project_id.clone(),
-                room_id.clone(),
-                sender_id.user_id.clone(),
-                message_content,
-                message_id,
-                timestamp,
-                3,
-            )
-            .await
+        use crate::actors::chat_service::WriteRoomMessageRequest;
+
+        let request = WriteRoomMessageRequest {
+            project_id: sender_id.project_id.clone(),
+            room_id: room_id.clone(),
+            sender_id: sender_id.user_id.clone(),
+            content: message_content,
+            message_id: message_id.to_string(),
+            timestamp,
+        };
+
+        match self.write_room_message_with_retry(request, 3).await
         {
             Ok(response) => {
                 let write_room_response = response.into_inner();
@@ -397,33 +375,19 @@ impl PersistenceActor {
 
     #[cfg(feature = "persistence")]
     pub async fn write_room_message_with_retry(
-        &mut self,
-        project_id: String,
-        room_id: String,
-        sender_id: String,
-        message_content: String,
-        message_id: uuid::Uuid,
-        timestamp: i64,
+        &self,
+        request: crate::actors::chat_service::WriteRoomMessageRequest,
         max_retries: u32,
     ) -> Result<tonic::Response<crate::actors::chat_service::WriteRoomMessageResponse>, tonic::Status>
     {
+        let mut client = self.chat_service_client.clone();
         let mut attempts = 0;
         let mut last_error = None;
 
         while attempts <= max_retries {
-            use crate::actors::chat_service::WriteRoomMessageRequest;
             use tonic::Request;
 
-            let request = Request::new(WriteRoomMessageRequest {
-                project_id: project_id.clone(),
-                room_id: room_id.clone(),
-                sender_id: sender_id.clone(),
-                content: message_content.clone(),
-                message_id: message_id.to_string(),
-                timestamp,
-            });
-
-            match self.chat_service_client.write_room_message(request).await {
+            match client.write_room_message(Request::new(request.clone())).await {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     attempts += 1;
@@ -451,7 +415,7 @@ impl PersistenceActor {
 
     #[cfg(feature = "persistence")]
     pub async fn handle_sync_messages(
-        &mut self,
+        &self,
         project_id: String,
         conversation_id: String,
         message_id: uuid::Uuid,
@@ -459,13 +423,15 @@ impl PersistenceActor {
         use crate::actors::chat_service::SyncMessagesRequest;
         use tonic::Request;
 
+        let mut client = self.chat_service_client.clone();
+
         let request = Request::new(SyncMessagesRequest {
             project_id,
             conversation_id: conversation_id.clone(),
             last_message_id: message_id.to_string(),
         });
 
-        match self.chat_service_client.sync_messages(request).await {
+        match client.sync_messages(request).await {
             Ok(response) => {
                 let sync_response = response.into_inner();
                 if sync_response.success {

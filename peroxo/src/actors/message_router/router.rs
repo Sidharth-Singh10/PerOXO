@@ -1,10 +1,11 @@
 use super::messages::RouterMessage;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use crate::actors::persistance_actor::PersistenceMessage;
+use crate::actors::persistance_actor::PersistenceService;
 use crate::actors::room_actor::RoomMessage;
 use crate::chat::ChatMessage;
 use crate::tenant::TenantUserId;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -13,14 +14,14 @@ pub struct MessageRouter {
     pub users: HashMap<TenantUserId, mpsc::Sender<ChatMessage>>,
     pub online_users: Vec<TenantUserId>,
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-    pub persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
+    pub persistence: Option<Arc<PersistenceService>>,
     pub rooms: HashMap<String, mpsc::UnboundedSender<RoomMessage>>,
 }
 
 impl MessageRouter {
     pub fn new(
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        persistence_sender: mpsc::UnboundedSender<PersistenceMessage>,
+        persistence: Arc<PersistenceService>,
     ) -> (Self, mpsc::UnboundedSender<RouterMessage>) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -29,7 +30,7 @@ impl MessageRouter {
             users: HashMap::new(),
             online_users: Vec::new(),
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-            persistence_sender: Some(persistence_sender),
+            persistence: Some(persistence),
             rooms: HashMap::new(),
         };
 

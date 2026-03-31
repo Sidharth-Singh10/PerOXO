@@ -1,15 +1,14 @@
 use crate::chat::{ChatMessage, MessageAckResponse};
 use crate::tenant::TenantUserId;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use crate::{actors::persistance_actor::PersistenceMessage, chat::PaginatedMessagesResponse};
+use crate::{actors::persistance_actor::PersistenceService, chat::PaginatedMessagesResponse};
 
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::chat::MessageStatus;
 
-#[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use tracing::error;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -46,14 +45,14 @@ pub struct RoomActor {
     receiver: mpsc::UnboundedReceiver<RoomMessage>,
     members: HashMap<TenantUserId, mpsc::Sender<ChatMessage>>,
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-    persistence_sender: Option<mpsc::UnboundedSender<PersistenceMessage>>,
+    persistence: Option<Arc<PersistenceService>>,
 }
 
 impl RoomActor {
     pub fn new(
         room_id: String,
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        persistence_sender: mpsc::UnboundedSender<PersistenceMessage>,
+        persistence: Arc<PersistenceService>,
     ) -> (Self, mpsc::UnboundedSender<RoomMessage>) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -62,7 +61,7 @@ impl RoomActor {
             receiver,
             members: HashMap::new(),
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-            persistence_sender: Some(persistence_sender),
+            persistence: Some(persistence),
         };
 
         (actor, sender)
@@ -177,54 +176,38 @@ impl RoomActor {
     ) {
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
         {
-            if let Some(persistence_sender) = &self.persistence_sender {
-                let (persist_respond_to, persist_response) = oneshot::channel();
-
-                let persist_msg = PersistenceMessage::PersistRoomMessage {
-                    room_id: self.room_id.clone(),
-                    sender_id: from.clone(),
-                    message_content: content.clone(),
-                    message_id,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                    respond_to: persist_respond_to,
-                };
-
-                if let Err(e) = persistence_sender.send(persist_msg) {
-                    error!("Failed to send message to persistence actor: {}", e);
-                    if let Some(responder) = respond_to {
-                        let _ = responder.send(MessageAckResponse {
-                            message_id,
-                            timestamp: chrono::Utc::now().timestamp_millis(),
-                            status: MessageStatus::Failed(format!("Persistence error: {}", e)),
-                        });
-                    }
-                    return;
-                }
+            if let Some(persistence) = &self.persistence {
+                let persistence = persistence.clone();
+                let room_id = self.room_id.clone();
+                let from_clone = from.clone();
+                let content_clone = content.clone();
+                let timestamp = chrono::Utc::now().timestamp_millis();
 
                 if let Some(responder) = respond_to {
                     tokio::spawn(async move {
-                        match persist_response.await {
-                            Ok(Ok(())) => {
+                        let result = persistence
+                            .handle_persist_room_message(
+                                room_id,
+                                from_clone,
+                                content_clone,
+                                message_id,
+                                timestamp,
+                            )
+                            .await;
+
+                        match result {
+                            Ok(()) => {
                                 let _ = responder.send(MessageAckResponse {
                                     message_id,
                                     timestamp: chrono::Utc::now().timestamp_millis(),
                                     status: MessageStatus::Persisted,
                                 });
                             }
-                            Ok(Err(e)) => {
+                            Err(e) => {
                                 let _ = responder.send(MessageAckResponse {
                                     message_id,
                                     timestamp: chrono::Utc::now().timestamp_millis(),
                                     status: MessageStatus::Failed(e),
-                                });
-                            }
-                            Err(_) => {
-                                let _ = responder.send(MessageAckResponse {
-                                    message_id,
-                                    timestamp: chrono::Utc::now().timestamp_millis(),
-                                    status: MessageStatus::Failed(
-                                        "Persistence timeout".to_string(),
-                                    ),
                                 });
                             }
                         }
@@ -260,29 +243,15 @@ impl RoomActor {
         message_id: Option<Uuid>,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
     ) {
-        if let Some(persistence_sender) = &self.persistence_sender {
-            let (persist_respond_to, persist_response) = oneshot::channel();
-            let persist_msg = PersistenceMessage::GetPaginatedMessages {
-                project_id,
-                message_id,
-                conversation_id: self.room_id.clone(),
-                respond_to: persist_respond_to,
-            };
-
-            if persistence_sender.send(persist_msg).is_err() {
-                let _ = respond_to.send(Err("Failed to communicate with persistence".to_string()));
-                return;
-            }
+        if let Some(persistence) = &self.persistence {
+            let persistence = persistence.clone();
+            let room_id = self.room_id.clone();
 
             tokio::spawn(async move {
-                match persist_response.await {
-                    Ok(result) => {
-                        let _ = respond_to.send(result);
-                    }
-                    Err(_) => {
-                        let _ = respond_to.send(Err("Persistence timeout".to_string()));
-                    }
-                }
+                let result = persistence
+                    .handle_get_paginated_messages(project_id, message_id, room_id)
+                    .await;
+                let _ = respond_to.send(result);
             });
         }
     }
