@@ -3,14 +3,18 @@ use std::env;
 use axum::{
     Router,
     extract::Extension,
+    http::{HeaderValue, Method, header::{AUTHORIZATION, CONTENT_TYPE}},
     routing::{get, post},
 };
 use sqlx::PgPool;
+use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 
 mod db;
+mod google_auth;
 mod grpc;
 mod handlers;
+mod rate_limit;
 mod tenant;
 mod user_token;
 
@@ -46,6 +50,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let allowed_origins: Vec<HeaderValue> = env::var("ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "https://docs.mutref.tech".to_string())
+        .split(',')
+        .map(|s| s.trim().parse::<HeaderValue>().expect("invalid origin in ALLOWED_ORIGINS"))
+        .collect();
+
+    let cors = CorsLayer::new()
+        .allow_origin(allowed_origins)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE]);
+
     let app = Router::new()
         .route("/generate-tenant", get(handlers::generate_tenant_handler))
         .route(
@@ -56,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/verify-user-token",
             post(handlers::verify_user_token_handler),
         )
-        // fix thiss , use state
+        .layer(cors)
         .layer(Extension(pool))
         .layer(Extension(redis_client));
 

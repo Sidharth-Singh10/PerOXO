@@ -1,10 +1,13 @@
-use axum::{Extension, Json, http::StatusCode};
+use axum::{
+    Extension, Json,
+    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
+};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use tracing::{error, info, warn};
 
-use crate::{db::insert_tenant_keypair, tenant, user_token};
+use crate::{db::insert_tenant_keypair, google_auth, rate_limit, tenant, user_token};
 
 #[derive(Serialize)]
 pub struct GenerateTenantResponse {
@@ -26,7 +29,54 @@ pub struct GenerateUserTokenResponse {
 
 pub async fn generate_tenant_handler(
     Extension(pool): Extension<PgPool>,
+    Extension(redis_client): Extension<redis::Client>,
+    headers: HeaderMap,
 ) -> Result<Json<GenerateTenantResponse>, (StatusCode, String)> {
+    let token = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or_else(|| {
+            warn!("generate-tenant called without valid Authorization header");
+            (
+                StatusCode::UNAUTHORIZED,
+                "Missing or invalid Authorization header".to_string(),
+            )
+        })?;
+
+    let google_user = google_auth::verify_id_token(token).await.map_err(|e| {
+        warn!(?e, "Google token verification failed");
+        match e {
+            google_auth::GoogleAuthError::AudienceMismatch => (
+                StatusCode::UNAUTHORIZED,
+                "Token audience mismatch".to_string(),
+            ),
+            google_auth::GoogleAuthError::InvalidToken(msg) => {
+                (StatusCode::UNAUTHORIZED, format!("Invalid Google token: {msg}"))
+            }
+            _ => (
+                StatusCode::UNAUTHORIZED,
+                "Google authentication failed".to_string(),
+            ),
+        }
+    })?;
+
+    info!(email = %google_user.email, "tenant generation requested");
+
+    rate_limit::check_rate_limit(&redis_client, &google_user.sub).map_err(|e| match e {
+        rate_limit::RateLimitError::Exceeded => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Rate limit exceeded: maximum 3 tenant generations per hour".to_string(),
+        ),
+        rate_limit::RateLimitError::RedisError(re) => {
+            error!(%re, "redis error during rate limit check");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal error".to_string(),
+            )
+        }
+    })?;
+
     let kp = tenant::TenantKeypair::new();
 
     let project_id = kp.get_project_id().clone();
@@ -36,6 +86,12 @@ pub async fn generate_tenant_handler(
         error!(%e, "failed to insert tenant keypair");
         return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
     }
+
+    info!(
+        email = %google_user.email,
+        project_id = %project_id,
+        "tenant keypair generated"
+    );
 
     let resp = GenerateTenantResponse {
         project_id,

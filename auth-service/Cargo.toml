@@ -15,6 +15,8 @@ axum = { version = "0.7", features = ["json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 redis = "1.0.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tower-http = { version = "0.6", features = ["cors"] }
 tonic = { version = "0.9", features = ["transport"] }
 prost = "0.11"
 
