@@ -1,5 +1,6 @@
-use crate::actors::chat_service::chat_service_client::ChatServiceClient;
 use tonic::transport::Channel;
+
+use crate::chat_service_client::ChatServiceClient;
 
 pub async fn connect_chat_service_client(
     chat_service_addr: String,

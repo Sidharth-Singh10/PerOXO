@@ -4,9 +4,10 @@ use crate::actors::{
 };
 
 #[cfg(feature = "persistence")]
-use crate::actors::chat_service::chat_service_client::ChatServiceClient;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::actors::persistance_actor::PersistenceService;
+#[cfg(feature = "persistence")]
+use crate::chat_service_client::ChatServiceClient;
 #[cfg(feature = "mongo_db")]
 use crate::mongo_db::config::MongoDbConfig;
 

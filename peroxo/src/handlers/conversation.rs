@@ -1,4 +1,4 @@
-use crate::state::PerOxoState;
+use crate::{GetSertConversationRequest, state::PerOxoState};
 use axum::{
     Json,
     extract::{Query, State},
@@ -41,7 +41,7 @@ pub async fn getsert_conversation_id(
 
     // Call the GetOrCreateConversation RPC
     let mut client = state.chat_client.clone();
-    let request = tonic::Request::new(crate::actors::chat_service::GetSertConversationRequest {
+    let request = tonic::Request::new(GetSertConversationRequest {
         project_id: params.project_id,
         user_id_1: u1,
         user_id_2: u2,

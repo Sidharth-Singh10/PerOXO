@@ -3,10 +3,8 @@ use tracing::{debug, error};
 use super::actor::PersistenceService;
 
 #[cfg(feature = "persistence")]
-use crate::actors::chat_service::WriteDmResponse;
 use crate::{
-    chat::{PaginatedMessagesResponse, ResponseDirectMessage},
-    tenant::TenantUserId,
+    WriteDmRequest, WriteDmResponse, WriteRoomMessageRequest, WriteRoomMessageResponse, chat::{PaginatedMessagesResponse, ResponseDirectMessage}, tenant::TenantUserId
 };
 
 impl PersistenceService {
@@ -64,7 +62,9 @@ impl PersistenceService {
 
         #[cfg(feature = "persistence")]
         {
-            use crate::actors::chat_service::WriteDmRequest;
+            use crate::WriteDmRequest;
+
+            
 
             let start = std::time::Instant::now();
             let request = WriteDmRequest {
@@ -154,7 +154,7 @@ impl PersistenceService {
     #[cfg(feature = "persistence")]
     pub async fn write_dm_with_retry(
         &self,
-        request: crate::actors::chat_service::WriteDmRequest,
+        request: WriteDmRequest,
         max_retries: u32,
     ) -> Result<tonic::Response<WriteDmResponse>, tonic::Status> {
         let mut client = self.chat_service_client.clone();
@@ -208,7 +208,8 @@ impl PersistenceService {
         {
             use tonic::Request;
 
-            use crate::actors::chat_service::GetPaginatedMessagesRequest;
+            use crate::GetPaginatedMessagesRequest;
+
 
             let mut client = self.chat_service_client.clone();
             let cursor_message_id = message_id.map(|id| id.to_string()).unwrap_or_default();
@@ -337,7 +338,8 @@ impl PersistenceService {
         message_id: uuid::Uuid,
         timestamp: i64,
     ) -> Result<(), String> {
-        use crate::actors::chat_service::WriteRoomMessageRequest;
+        use crate::WriteRoomMessageRequest;
+
 
         let request = WriteRoomMessageRequest {
             project_id: sender_id.project_id.clone(),
@@ -376,9 +378,9 @@ impl PersistenceService {
     #[cfg(feature = "persistence")]
     pub async fn write_room_message_with_retry(
         &self,
-        request: crate::actors::chat_service::WriteRoomMessageRequest,
+        request: WriteRoomMessageRequest,
         max_retries: u32,
-    ) -> Result<tonic::Response<crate::actors::chat_service::WriteRoomMessageResponse>, tonic::Status>
+    ) -> Result<tonic::Response<WriteRoomMessageResponse>, tonic::Status>
     {
         let mut client = self.chat_service_client.clone();
         let mut attempts = 0;
@@ -420,8 +422,9 @@ impl PersistenceService {
         conversation_id: String,
         message_id: uuid::Uuid,
     ) -> Result<Vec<crate::chat::ResponseDirectMessage>, String> {
-        use crate::actors::chat_service::SyncMessagesRequest;
         use tonic::Request;
+
+        use crate::SyncMessagesRequest;
 
         let mut client = self.chat_service_client.clone();
 
