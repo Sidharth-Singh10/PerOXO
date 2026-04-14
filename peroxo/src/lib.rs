@@ -20,13 +20,16 @@ tonic::include_proto!("chat_service");
 
 pub mod actors;
 pub mod chat;
+pub mod config;
 pub mod connections;
 mod handlers;
 pub mod metrics;
 #[cfg(feature = "mongo_db")]
 pub mod mongo_db;
 pub mod socket;
+pub mod startup;
 pub mod state;
+pub mod telemetry;
 pub mod tenant;
 
 async fn verify_token(
