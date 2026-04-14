@@ -1,23 +1,7 @@
-use axum::{
-    Router,
-    extract::{Query, State, WebSocketUpgrade},
-    http::StatusCode,
-    middleware,
-    response::IntoResponse,
-    routing::{any, get},
-};
-use std::{collections::HashMap, sync::Arc};
-
-use crate::{
-    handlers::conversation::getsert_conversation_id,
-    metrics::{metrics_handler, metrics_middleware},
-    socket::dm_socket,
-    state::PerOxoState,
-};
-
 tonic::include_proto!("auth_service");
 tonic::include_proto!("chat_service");
 
+pub mod auth;
 pub mod actors;
 pub mod chat;
 pub mod config;
@@ -26,70 +10,11 @@ mod handlers;
 pub mod metrics;
 #[cfg(feature = "mongo_db")]
 pub mod mongo_db;
+mod routes;
 pub mod socket;
 pub mod startup;
 pub mod state;
 pub mod telemetry;
 pub mod tenant;
 
-async fn verify_token(
-    state: &Arc<PerOxoState>,
-    token: String,
-) -> Result<UserToken, (StatusCode, String)> {
-    let mut client = state.auth_client.clone();
-
-    let req = tonic::Request::new(VerifyUserTokenRequest { token });
-
-    let resp = match client.verify_user_token(req).await {
-        Ok(r) => r.into_inner(),
-        Err(e) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Auth service error: {}", e),
-            ));
-        }
-    };
-
-    if !resp.found {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid token".to_string()));
-    }
-
-    match resp.user_token {
-        Some(user_token) => Ok(user_token),
-        None => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Auth service returned found=true but no user_token data".to_string(),
-        )),
-    }
-}
-
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<PerOxoState>>,
-    Query(params): Query<HashMap<String, String>>,
-) -> impl IntoResponse {
-    let token = match params.get("token") {
-        Some(token) => token.clone(),
-        None => return (StatusCode::BAD_REQUEST, "Missing token").into_response(),
-    };
-
-    let user_token = match verify_token(&state, token.clone()).await {
-        Ok(id) => id,
-        Err(err) => return err.into_response(),
-    };
-
-    let tenant_user_id = match tenant::TenantUserId::from_token(&user_token) {
-        Ok(id) => id,
-        Err(_) => return (StatusCode::UNAUTHORIZED, "Invalid tenant token").into_response(),
-    };
-    ws.on_upgrade(move |socket| dm_socket(socket, tenant_user_id, state))
-}
-
-pub fn peroxo_route(state: Arc<PerOxoState>) -> Router {
-    Router::new()
-        .route("/ws", any(ws_handler))
-        .route("/metrics", get(metrics_handler))
-        .route("/conversations", get(getsert_conversation_id))
-        .layer(middleware::from_fn(metrics_middleware))
-        .with_state(state)
-}
+pub use routes::peroxo_route;
