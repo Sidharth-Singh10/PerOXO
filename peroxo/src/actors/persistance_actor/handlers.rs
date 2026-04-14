@@ -4,7 +4,9 @@ use super::actor::PersistenceService;
 
 #[cfg(feature = "persistence")]
 use crate::{
-    WriteDmRequest, WriteDmResponse, WriteRoomMessageRequest, WriteRoomMessageResponse, chat::{PaginatedMessagesResponse, ResponseDirectMessage}, tenant::TenantUserId
+    WriteDmRequest, WriteDmResponse, WriteRoomMessageRequest, WriteRoomMessageResponse,
+    chat::{PaginatedMessagesResponse, ResponseDirectMessage},
+    tenant::TenantUserId,
 };
 
 impl PersistenceService {
@@ -64,8 +66,6 @@ impl PersistenceService {
         {
             use crate::WriteDmRequest;
 
-            
-
             let start = std::time::Instant::now();
             let request = WriteDmRequest {
                 project_id: tenant_sender_id.project_id.clone(),
@@ -77,8 +77,7 @@ impl PersistenceService {
                 timestamp,
             };
 
-            match self.write_dm_with_retry(request, 3).await
-            {
+            match self.write_dm_with_retry(request, 3).await {
                 Ok(response) => {
                     let write_dm_response = response.into_inner();
                     if write_dm_response.success {
@@ -210,7 +209,6 @@ impl PersistenceService {
 
             use crate::GetPaginatedMessagesRequest;
 
-
             let mut client = self.chat_service_client.clone();
             let cursor_message_id = message_id.map(|id| id.to_string()).unwrap_or_default();
 
@@ -340,7 +338,6 @@ impl PersistenceService {
     ) -> Result<(), String> {
         use crate::WriteRoomMessageRequest;
 
-
         let request = WriteRoomMessageRequest {
             project_id: sender_id.project_id.clone(),
             room_id: room_id.clone(),
@@ -350,8 +347,7 @@ impl PersistenceService {
             timestamp,
         };
 
-        match self.write_room_message_with_retry(request, 3).await
-        {
+        match self.write_room_message_with_retry(request, 3).await {
             Ok(response) => {
                 let write_room_response = response.into_inner();
                 if write_room_response.success {
@@ -380,8 +376,7 @@ impl PersistenceService {
         &self,
         request: WriteRoomMessageRequest,
         max_retries: u32,
-    ) -> Result<tonic::Response<WriteRoomMessageResponse>, tonic::Status>
-    {
+    ) -> Result<tonic::Response<WriteRoomMessageResponse>, tonic::Status> {
         let mut client = self.chat_service_client.clone();
         let mut attempts = 0;
         let mut last_error = None;
@@ -389,7 +384,10 @@ impl PersistenceService {
         while attempts <= max_retries {
             use tonic::Request;
 
-            match client.write_room_message(Request::new(request.clone())).await {
+            match client
+                .write_room_message(Request::new(request.clone()))
+                .await
+            {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     attempts += 1;

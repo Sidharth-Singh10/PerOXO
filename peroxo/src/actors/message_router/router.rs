@@ -20,8 +20,9 @@ pub struct MessageRouter {
 
 impl MessageRouter {
     pub fn new(
-        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        persistence: Arc<PersistenceService>,
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))] persistence: Arc<
+            PersistenceService,
+        >,
     ) -> (Self, mpsc::UnboundedSender<RouterMessage>) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -83,8 +84,13 @@ impl MessageRouter {
                     conversation_id,
                     respond_to,
                 } => {
-                    self.handle_get_paginated_chat_history(project_id,message_id, conversation_id, respond_to)
-                        .await;
+                    self.handle_get_paginated_chat_history(
+                        project_id,
+                        message_id,
+                        conversation_id,
+                        respond_to,
+                    )
+                    .await;
                 }
                 RouterMessage::JoinRoom {
                     tenant_user_id,
@@ -124,7 +130,7 @@ impl MessageRouter {
                     message_id,
                     respond_to,
                 } => {
-                    self.handle_sync_messages(project_id,conversation_id, message_id, respond_to)
+                    self.handle_sync_messages(project_id, conversation_id, message_id, respond_to)
                         .await;
                 }
             }

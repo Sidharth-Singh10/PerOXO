@@ -153,10 +153,8 @@ impl MessageRouter {
             sender.clone()
         } else {
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-            let (room_actor, room_sender) = RoomActor::new(
-                room_id.clone(),
-                self.persistence.as_ref().unwrap().clone(),
-            );
+            let (room_actor, room_sender) =
+                RoomActor::new(room_id.clone(), self.persistence.as_ref().unwrap().clone());
 
             #[cfg(not(any(feature = "mongo_db", feature = "persistence")))]
             let (room_actor, room_sender) = {

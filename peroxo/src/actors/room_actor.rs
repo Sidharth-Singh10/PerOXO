@@ -6,7 +6,6 @@ use crate::{actors::persistance_actor::PersistenceService, chat::PaginatedMessag
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::chat::MessageStatus;
 
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
@@ -51,8 +50,9 @@ pub struct RoomActor {
 impl RoomActor {
     pub fn new(
         room_id: String,
-        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        persistence: Arc<PersistenceService>,
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))] persistence: Arc<
+            PersistenceService,
+        >,
     ) -> (Self, mpsc::UnboundedSender<RoomMessage>) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -70,8 +70,7 @@ impl RoomActor {
     pub async fn run(mut self) {
         info!("Room actor started for room: {}", self.room_id);
 
-        let mut cleanup_interval =
-            tokio::time::interval(std::time::Duration::from_secs(60));
+        let mut cleanup_interval = tokio::time::interval(std::time::Duration::from_secs(60));
 
         loop {
             tokio::select! {
@@ -127,8 +126,7 @@ impl RoomActor {
                 );
             }
             RoomMessage::GetMembers { respond_to } => {
-                let members: Vec<TenantUserId> =
-                    self.members.keys().cloned().collect();
+                let members: Vec<TenantUserId> = self.members.keys().cloned().collect();
                 let _ = respond_to.send(members);
             }
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
