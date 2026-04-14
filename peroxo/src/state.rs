@@ -2,19 +2,20 @@ use crate::actors::{
     connection_manager::ConnectionManager,
     message_router::{MessageRouter, RouterMessage},
 };
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 #[cfg(feature = "persistence")]
-#[cfg(any(feature = "mongo_db", feature = "persistence"))]
-use crate::actors::persistance_actor::PersistenceService;
-#[cfg(feature = "persistence")]
 use crate::chat_service_client::ChatServiceClient;
+#[cfg(feature = "persistence")]
+use tonic::transport::Channel;
+
 #[cfg(feature = "mongo_db")]
 use crate::mongo_db::config::MongoDbConfig;
 
-use std::sync::Arc;
-use tokio::sync::mpsc;
-#[cfg(feature = "persistence")]
-use tonic::transport::Channel;
+#[cfg(any(feature = "mongo_db", feature = "persistence"))]
+use crate::actors::persistance_actor::PersistenceService;
+
 pub struct PerOxoState {
     pub connection_manager: Arc<ConnectionManager>,
     pub router_sender: mpsc::UnboundedSender<RouterMessage>,
@@ -26,23 +27,10 @@ pub struct PerOxoState {
 impl PerOxoState {
     async fn new(
         #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
-        #[cfg(feature = "mongo_db")] mango_db_client: mongodb::Client,
-        #[cfg(feature = "mongo_db")] mongo_config: MongoDbConfig,
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+        persistence: Arc<PersistenceService>,
         auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        #[cfg(feature = "persistence")]
-        let chat_service_client_clone = chat_service_client.clone();
-
-        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        let persistence = Arc::new(PersistenceService::new(
-            #[cfg(feature = "persistence")]
-            chat_service_client_clone,
-            #[cfg(feature = "mongo_db")]
-            mango_db_client,
-            #[cfg(feature = "mongo_db")]
-            mongo_config,
-        ));
-
         let (router, router_sender) = MessageRouter::new(
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
             persistence,
@@ -134,13 +122,21 @@ impl PerOxoStateBuilder {
             return Err("auth_url is required".into());
         };
 
-        PerOxoState::new(
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+        let persistence = Arc::new(PersistenceService::new(
             #[cfg(feature = "persistence")]
-            chat_service_client,
+            chat_service_client.clone(),
             #[cfg(feature = "mongo_db")]
             mango_db_client,
             #[cfg(feature = "mongo_db")]
             mongo_config,
+        ));
+
+        PerOxoState::new(
+            #[cfg(feature = "persistence")]
+            chat_service_client,
+            #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+            persistence,
             auth_service_client,
         )
         .await
