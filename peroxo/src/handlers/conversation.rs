@@ -24,22 +24,17 @@ pub struct ConversationResponse {
 }
 
 pub async fn getsert_conversation_id(
-    // 1. Extract parameters from the URL query string
     Query(params): Query<ConversationParams>,
-    // 2. Extract your Database pool or Service State here
     State(state): State<Arc<PerOxoState>>,
 ) -> impl IntoResponse {
-    // --- Application Logic Start ---
-    // This is where you would call yourgRPC client.
-
-    // Ensure user_ids are sorted to maintain a consistent unique key for the pair
+   
+    // move this to chat_service
     let (u1, u2) = if params.user_id_1 < params.user_id_2 {
         (params.user_id_1, params.user_id_2)
     } else {
         (params.user_id_2, params.user_id_1)
     };
 
-    // Call the GetOrCreateConversation RPC
     let mut client = state.chat_client.clone();
     let request = tonic::Request::new(GetSertConversationRequest {
         project_id: params.project_id,
@@ -69,6 +64,5 @@ pub async fn getsert_conversation_id(
         created_new: grpc_response.created_new,
     };
 
-    // 4. Return JSON
     (StatusCode::OK, Json(response))
 }
