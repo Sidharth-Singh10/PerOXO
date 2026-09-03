@@ -2,11 +2,6 @@ services:
   scylladb:
     image: scylladb/scylla:latest
     container_name: scylla
-    ports:
-      - "9042:9042"
-      - "9160:9160"
-      - "7000:7000"
-      - "7001:7001"
     volumes:
       - scylla_data:/var/lib/scylla
     environment:
@@ -27,8 +22,6 @@ services:
       context: ./chat-service
       dockerfile: Dockerfile
     container_name: chat-service
-    ports:
-      - "50052:50052"
     depends_on:
       scylladb:
         condition: service_healthy
@@ -47,7 +40,6 @@ services:
       dockerfile: Dockerfile
     container_name: auth-service
     ports:
-      - "50053:50053"
       - "3004:3004"
     depends_on:
       redis:
@@ -65,7 +57,6 @@ services:
       dockerfile: Dockerfile
     container_name: per-oxo
     ports:
-      - "50051:50051"
       - "4001:3000"
     environment:
       - RUST_LOG=debug
@@ -116,8 +107,6 @@ services:
     container_name: redis_auth
     networks:
       - chat_network
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

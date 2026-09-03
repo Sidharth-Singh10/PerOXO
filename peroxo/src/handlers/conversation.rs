@@ -1,4 +1,4 @@
-use crate::{GetSertConversationRequest, state::PerOxoState};
+use crate::{auth::AuthenticatedUser, GetSertConversationRequest, state::PerOxoState};
 use axum::{
     Json,
     extract::{Query, State},
@@ -26,8 +26,23 @@ pub struct ConversationResponse {
 pub async fn getsert_conversation_id(
     Query(params): Query<ConversationParams>,
     State(state): State<Arc<PerOxoState>>,
+    auth: AuthenticatedUser,
 ) -> impl IntoResponse {
-   
+    // The conversation must belong to the authenticated tenant: a caller
+    // holding a token for project A must not be able to touch project B's
+    // conversations.
+    if params.project_id != auth.user_token.project_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ConversationResponse {
+                success: false,
+                error_message: "project_id does not match authenticated tenant".to_string(),
+                conversation_id: String::new(),
+                created_new: false,
+            }),
+        );
+    }
+
     // move this to chat_service
     let (u1, u2) = if params.user_id_1 < params.user_id_2 {
         (params.user_id_1, params.user_id_2)
