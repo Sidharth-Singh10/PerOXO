@@ -76,6 +76,7 @@ pub enum ChatMessage {
 pub enum MessageStatus {
     Delivered,
     Persisted,
+    NotDelivered(String),
     Failed(String),
 }
 

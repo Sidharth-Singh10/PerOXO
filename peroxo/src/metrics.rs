@@ -46,6 +46,17 @@ static WEBSOCKET_MESSAGES_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+static WEBSOCKET_MESSAGES_DROPPED_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
+        opts!(
+            "websocket_messages_dropped_total",
+            "Messages dropped during delivery to a recipient"
+        ),
+        &["reason"]
+    )
+    .unwrap()
+});
+
 static CHAT_MESSAGES_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         opts!("chat_messages_total", "Total chat messages processed"),
@@ -157,6 +168,12 @@ impl Metrics {
     pub fn websocket_message_persisted() {
         WEBSOCKET_MESSAGES_TOTAL
             .with_label_values(&["peristed"])
+            .inc();
+    }
+
+    pub fn websocket_message_dropped(reason: &str) {
+        WEBSOCKET_MESSAGES_DROPPED_TOTAL
+            .with_label_values(&[reason])
             .inc();
     }
 

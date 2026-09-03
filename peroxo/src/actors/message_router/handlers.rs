@@ -53,13 +53,51 @@ impl MessageRouter {
         >,
     ) {
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
+        let (from_clone, to_clone, content_clone, timestamp) = (
+            from.clone(),
+            to.clone(),
+            content.clone(),
+            chrono::Utc::now().timestamp_millis(),
+        );
+
+        let delivery_outcome: Option<&'static str> = match self.users.get(&to) {
+            Some(recipient_sender) => {
+                let message = ChatMessage::DirectMessage {
+                    from,
+                    content,
+                    server_message_id: message_id,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                };
+
+                match recipient_sender.try_send(message) {
+                    Ok(()) => {
+                        debug!("Message sent successfully to {}", to);
+                        None
+                    }
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        debug!("Recipient {} message queue is full, dropping message", to);
+                        Some("queue_full")
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        debug!("Recipient {} channel is closed", to);
+                        Some("channel_closed")
+                    }
+                }
+            }
+            None => {
+                debug!("User {} not found or offline", to);
+                Some("offline")
+            }
+        };
+
+        if let Some(reason) = delivery_outcome {
+            crate::metrics::Metrics::websocket_message_dropped(reason);
+        }
+
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
         {
             if let Some(persistence) = &self.persistence {
                 let persistence = persistence.clone();
-                let from_clone = from.clone();
-                let to_clone = to.clone();
-                let content_clone = content.clone();
-                let timestamp = chrono::Utc::now().timestamp_millis();
 
                 if let Some(responder) = respond_to {
                     tokio::spawn(async move {
@@ -76,52 +114,24 @@ impl MessageRouter {
 
                         crate::metrics::Metrics::websocket_message_persisted();
 
-                        match result {
-                            Ok(()) => {
-                                let _ = responder.send(MessageAckResponse {
-                                    message_id,
-                                    timestamp: chrono::Utc::now().timestamp_millis(),
-                                    status: MessageStatus::Persisted,
-                                });
-                            }
-                            Err(e) => {
-                                let _ = responder.send(MessageAckResponse {
-                                    message_id,
-                                    timestamp: chrono::Utc::now().timestamp_millis(),
-                                    status: MessageStatus::Failed(e),
-                                });
-                            }
-                        }
+                        let status = match result {
+                            Ok(()) => match delivery_outcome {
+                                None => MessageStatus::Persisted,
+                                Some(reason) => MessageStatus::NotDelivered(format!(
+                                    "persisted but not delivered to recipient ({reason})"
+                                )),
+                            },
+                            Err(e) => MessageStatus::Failed(e),
+                        };
+
+                        let _ = responder.send(MessageAckResponse {
+                            message_id,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                            status,
+                        });
                     });
                 }
             }
-        }
-
-        if let Some(recipient_sender) = self.users.get(&to) {
-            let to_clone = to;
-            let message = ChatMessage::DirectMessage {
-                from,
-                content,
-                server_message_id: message_id,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-            };
-
-            match recipient_sender.try_send(message) {
-                Ok(()) => {
-                    debug!("Message sent successfully to {}", to_clone);
-                }
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    debug!(
-                        "Recipient {} message queue is full, dropping message",
-                        to_clone
-                    );
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    debug!("Recipient {} channel is closed", to_clone);
-                }
-            }
-        } else {
-            debug!("User {} not found or offline", to);
         }
     }
 

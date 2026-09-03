@@ -1,4 +1,5 @@
 use crate::chat::{ChatMessage, MessageAckResponse};
+use crate::metrics::Metrics;
 use crate::tenant::TenantUserId;
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::{actors::persistance_actor::PersistenceService, chat::PaginatedMessagesResponse};
@@ -225,9 +226,11 @@ impl RoomActor {
             match sender.try_send(message.clone()) {
                 Ok(_) => debug!("Message sent to member {} in {}", member_id, self.room_id),
                 Err(mpsc::error::TrySendError::Full(_)) => {
+                    Metrics::websocket_message_dropped("room_queue_full");
                     debug!("Member {} queue full in {}", member_id, self.room_id);
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
+                    Metrics::websocket_message_dropped("room_channel_closed");
                     debug!("Member {} channel closed in {}", member_id, self.room_id);
                 }
             }
