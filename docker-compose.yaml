@@ -73,7 +73,6 @@ services:
       - CHAT_SERVICE_ADDR=http://chat-service:50052
       - AUTH_SERVICE_ADDR=http://auth-service:50053
       - PER_OXO_SERVICE_ADDR=0.0.0.0:3000 
-      - MAC_ADD= add your mac add here
     depends_on:
       chat-service:
         condition: service_healthy
