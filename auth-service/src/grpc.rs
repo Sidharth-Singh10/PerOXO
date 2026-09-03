@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{error, info, instrument};
 
@@ -8,7 +9,7 @@ tonic::include_proto!("auth_service");
 
 #[derive(Clone)]
 pub struct AuthServiceImpl {
-    pub redis_client: redis::Client,
+    pub redis: Arc<redis::aio::ConnectionManager>,
 }
 
 #[tonic::async_trait]
@@ -20,7 +21,7 @@ impl auth_service_server::AuthService for AuthServiceImpl {
     ) -> Result<Response<VerifyUserTokenResponse>, Status> {
         let token = request.into_inner().token;
 
-        match user_token_module::verify_user_token(&self.redis_client, &token).await {
+        match user_token_module::verify_user_token(&self.redis, &token).await {
             Ok(Some(t)) => {
                 // clone values for logging without moving `t` before we build response
                 let project_id_val = t.project_id.clone();
@@ -57,9 +58,9 @@ impl auth_service_server::AuthService for AuthServiceImpl {
 
 pub async fn start_grpc_server(
     addr: SocketAddr,
-    redis_client: redis::Client,
+    redis: Arc<redis::aio::ConnectionManager>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let svc = auth_service_server::AuthServiceServer::new(AuthServiceImpl { redis_client });
+    let svc = auth_service_server::AuthServiceServer::new(AuthServiceImpl { redis });
 
     info!(addr = ?addr, "starting gRPC server");
 

@@ -1,9 +1,12 @@
 use rand::Rng;
 use rand::distributions::Alphanumeric;
-use redis::Commands;
+use redis::AsyncCommands;
+use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, instrument, warn};
+
+const TOKEN_TTL_SECS: u64 = 600;
 
 #[derive(Serialize, Deserialize)]
 pub struct UserToken {
@@ -22,21 +25,19 @@ fn generate_token() -> String {
     format!("pxtok_{}", rand_string)
 }
 
-#[instrument(skip(redis_client))]
+#[instrument(skip(redis))]
 pub async fn store_user_token(
-    redis_client: &redis::Client,
+    redis: &ConnectionManager,
     project_id: &str,
     user_id: &str,
 ) -> redis::RedisResult<String> {
-    let ttl_secs = 600;
-
     let token = generate_token();
 
     let expires_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs()
-        + ttl_secs;
+        + TOKEN_TTL_SECS;
 
     let payload = UserToken {
         project_id: project_id.to_string(),
@@ -46,19 +47,19 @@ pub async fn store_user_token(
 
     let json_value = serde_json::to_string(&payload).unwrap();
 
-    let mut con = redis_client.get_connection()?;
+    let mut con = redis.clone();
     let key = &token;
 
-    let _: () = con.set_ex(key, json_value, ttl_secs)?;
+    let _: () = con.set_ex(key, json_value, TOKEN_TTL_SECS).await?;
 
     info!(token = ?key, project_id = %project_id, user_id = %user_id, "stored token in redis");
 
     Ok(token)
 }
 
-#[instrument(skip(redis_client))]
+#[instrument(skip(redis))]
 pub async fn verify_user_token(
-    redis_client: &redis::Client,
+    redis: &ConnectionManager,
     token: &str,
 ) -> Result<Option<UserToken>, Box<dyn std::error::Error>> {
     if !token.starts_with("pxtok_") {
@@ -66,9 +67,9 @@ pub async fn verify_user_token(
         return Ok(None);
     }
 
-    let mut con = redis_client.get_connection()?;
+    let mut con = redis.clone();
 
-    let data: Option<String> = con.get(token)?;
+    let data: Option<String> = con.get(token).await?;
 
     let json = match data {
         Some(v) => v,

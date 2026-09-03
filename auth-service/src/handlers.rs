@@ -4,6 +4,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::Arc;
 
 use tracing::{error, info, warn};
 
@@ -29,7 +30,7 @@ pub struct GenerateUserTokenResponse {
 
 pub async fn generate_tenant_handler(
     Extension(pool): Extension<PgPool>,
-    Extension(redis_client): Extension<redis::Client>,
+    Extension(redis): Extension<Arc<redis::aio::ConnectionManager>>,
     headers: HeaderMap,
 ) -> Result<Json<GenerateTenantResponse>, (StatusCode, String)> {
     let token = headers
@@ -63,7 +64,7 @@ pub async fn generate_tenant_handler(
 
     info!(email = %google_user.email, "tenant generation requested");
 
-    rate_limit::check_rate_limit(&redis_client, &google_user.sub).map_err(|e| match e {
+    rate_limit::check_rate_limit(&redis, &google_user.sub).await.map_err(|e| match e {
         rate_limit::RateLimitError::Exceeded => (
             StatusCode::TOO_MANY_REQUESTS,
             "Rate limit exceeded: maximum 3 tenant generations per hour".to_string(),
@@ -103,7 +104,7 @@ pub async fn generate_tenant_handler(
 
 pub async fn generate_user_token_handler(
     Extension(pool): Extension<PgPool>,
-    Extension(redis_client): Extension<redis::Client>,
+    Extension(redis): Extension<Arc<redis::aio::ConnectionManager>>,
     Json(payload): Json<GenerateUserTokenRequest>,
 ) -> Result<Json<GenerateUserTokenResponse>, (StatusCode, String)> {
     info!(project_id = %payload.project_id, user_id = %payload.user_id, "generate_user_token_handler called");
@@ -138,7 +139,7 @@ pub async fn generate_user_token_handler(
 
     // Generate and store the user token in Redis
     let user_token =
-        user_token::store_user_token(&redis_client, &payload.project_id, &payload.user_id)
+        user_token::store_user_token(&redis, &payload.project_id, &payload.user_id)
             .await
             .map_err(|e| {
                 error!(%e, "failed to store user token");
@@ -154,12 +155,12 @@ pub async fn generate_user_token_handler(
 }
 
 pub async fn verify_user_token_handler(
-    Extension(redis_client): Extension<redis::Client>,
+    Extension(redis): Extension<Arc<redis::aio::ConnectionManager>>,
     Json(payload): Json<String>,
 ) -> Result<Json<Option<user_token::UserToken>>, (StatusCode, String)> {
     let token = payload;
 
-    match user_token::verify_user_token(&redis_client, &token).await {
+    match user_token::verify_user_token(&redis, &token).await {
         Ok(result) => {
             info!(found = %result.is_some(), "verify_user_token result");
             Ok(Json(result))

@@ -1,4 +1,5 @@
 use std::env;
+use std::sync::Arc;
 
 use axum::{
     Router,
@@ -41,7 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let redis_client = redis::Client::open(redis_url.clone())?;
     info!(redis_url = %redis_url, "redis client created");
 
-    let grpc_redis = redis_client.clone();
+    // Multiplexed async connection: ConnectionManager reuses one connection
+    // instead of opening a blocking connection per call.
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
+    let redis_arc = Arc::new(redis_manager);
+
+    let grpc_redis = redis_arc.clone();
     let grpc_addr = env::var("GRPC_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:50051".to_string())
         .parse()?;
@@ -87,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post(handlers::verify_user_token_handler),
         )
         .layer(Extension(pool))
-        .layer(Extension(redis_client))
+        .layer(Extension(redis_arc))
         .layer(cors);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3004").await.unwrap();
