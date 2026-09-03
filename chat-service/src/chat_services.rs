@@ -34,27 +34,11 @@ use uuid::Uuid;
 pub struct ChatServiceImpl {
     session: Arc<Session>,
     queries: Arc<crate::Queries>,
-    #[cfg(feature = "rabbit")]
-    dm_publisher: Arc<MessagePublisher>,
-    #[cfg(feature = "rabbit")]
-    room_publisher: Arc<MessagePublisher>,
 }
 
 impl ChatServiceImpl {
-    pub fn new(
-        session: Arc<Session>,
-        queries: Arc<crate::Queries>,
-        #[cfg(feature = "rabbit")] dm_publisher: Arc<MessagePublisher>,
-        #[cfg(feature = "rabbit")] room_publisher: Arc<MessagePublisher>,
-    ) -> Self {
-        Self {
-            session,
-            queries,
-            #[cfg(feature = "rabbit")]
-            dm_publisher,
-            #[cfg(feature = "rabbit")]
-            room_publisher,
-        }
+    pub fn new(session: Arc<Session>, queries: Arc<crate::Queries>) -> Self {
+        Self { session, queries }
     }
 }
 
@@ -156,49 +140,6 @@ impl ChatService for ChatServiceImpl {
             })),
         }
     }
-
-    // async fn write_dm(
-    //     &self,
-    //     request: Request<WriteDmRequest>,
-    // ) -> Result<Response<WriteDmResponse>, Status> {
-    //     let req = request.into_inner();
-
-    //     // Create the DirectMessage using your existing function
-    //     let dm = match create_dm(
-    //         req.sender_id,
-    //         req.receiver_id,
-    //         req.message,
-    //         (req.message_id).as_str(),
-    //         req.timestamp,
-    //     ) {
-    //         Ok(dm) => dm,
-    //         Err(e) => {
-    //             let response = WriteDmResponse {
-    //                 success: false,
-    //                 error_message: format!("Failed to create message: {}", e),
-    //             };
-    //             return Ok(Response::new(response));
-    //         }
-    //     };
-    //     let serializable_dm: SerializableDirectMessage = dm.into();
-
-    //     match self.dm_publisher.publish_message(&serializable_dm).await {
-    //         Ok(()) => {
-    //             let response = WriteDmResponse {
-    //                 success: true,
-    //                 error_message: String::new(),
-    //             };
-    //             Ok(Response::new(response))
-    //         }
-    //         Err(e) => {
-    //             let response = WriteDmResponse {
-    //                 success: false,
-    //                 error_message: format!("Failed to queue message: {}", e),
-    //             };
-    //             Ok(Response::new(response))
-    //         }
-    //     }
-    // }
 
     async fn fetch_user_conversations(
         &self,

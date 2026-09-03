@@ -1,4 +1,4 @@
-DIRS := chat-service peroxo rabbit_consumer user-service
+DIRS := chat-service peroxo user-service
 
 .PHONY: all fmt
 

@@ -408,27 +408,3 @@ pub async fn getsert_conversation_id(
 //         created_at,
 //     })
 // }
-#[cfg(feature = "rabbit")]
-
-pub fn create_room_message(
-    room_id: String,
-    from: i32,
-    content: String,
-    message_id: &str,
-    timestamp: i64,
-) -> Result<RoomMessage, Box<dyn std::error::Error>> {
-    let message_id = match Uuid::parse_str(message_id) {
-        Ok(uuid) => uuid,
-        Err(e) => return Err(Box::new(e)),
-    };
-
-    let created_at = CqlTimestamp(timestamp);
-
-    Ok(RoomMessage {
-        room_id,
-        message_id,
-        from,
-        content,
-        created_at,
-    })
-}
