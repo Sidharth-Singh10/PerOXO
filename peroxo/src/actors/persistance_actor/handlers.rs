@@ -1,6 +1,9 @@
+use std::time::Duration;
 use tracing::{debug, error};
 
 use super::actor::PersistenceService;
+
+const GRPC_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(feature = "persistence")]
 use crate::{
@@ -163,7 +166,10 @@ impl PersistenceService {
         while attempts <= max_retries {
             use tonic::Request;
 
-            match client.write_dm(Request::new(request.clone())).await {
+            let mut req = Request::new(request.clone());
+            req.set_timeout(GRPC_TIMEOUT);
+
+            match client.write_dm(req).await {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     attempts += 1;
@@ -218,8 +224,8 @@ impl PersistenceService {
                 cursor_message_id,
             });
 
-            match client.get_paginated_messages(request).await {
-                Ok(response) => {
+            match tokio::time::timeout(GRPC_TIMEOUT, client.get_paginated_messages(request)).await {
+                Ok(Ok(response)) => {
                     let get_paginated_response = response.into_inner();
                     if get_paginated_response.success {
                         let messages: Vec<ResponseDirectMessage> = get_paginated_response
@@ -258,9 +264,13 @@ impl PersistenceService {
                         Err(get_paginated_response.error_message)
                     }
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     error!("gRPC call failed: {}", e);
                     Err(format!("gRPC call failed: {}", e))
+                }
+                Err(_) => {
+                    error!("gRPC call timed out");
+                    Err("gRPC call timed out".to_string())
                 }
             }
         }
@@ -384,8 +394,11 @@ impl PersistenceService {
         while attempts <= max_retries {
             use tonic::Request;
 
+            let mut req = Request::new(request.clone());
+            req.set_timeout(GRPC_TIMEOUT);
+
             match client
-                .write_room_message(Request::new(request.clone()))
+                .write_room_message(req)
                 .await
             {
                 Ok(response) => return Ok(response),
@@ -432,8 +445,8 @@ impl PersistenceService {
             last_message_id: message_id.to_string(),
         });
 
-        match client.sync_messages(request).await {
-            Ok(response) => {
+        match tokio::time::timeout(GRPC_TIMEOUT, client.sync_messages(request)).await {
+            Ok(Ok(response)) => {
                 let sync_response = response.into_inner();
                 if sync_response.success {
                     let messages: Vec<crate::chat::ResponseDirectMessage> = sync_response
@@ -461,9 +474,13 @@ impl PersistenceService {
                     Err(sync_response.error_message)
                 }
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 error!("gRPC call failed: {}", e);
                 Err(format!("gRPC call failed: {}", e))
+            }
+            Err(_) => {
+                error!("SyncMessages gRPC call timed out");
+                Err("gRPC call timed out".to_string())
             }
         }
     }

@@ -6,6 +6,9 @@ use super::router::MessageRouter;
 use crate::actors::room_actor::RoomActor;
 use crate::actors::room_actor::RoomMessage;
 use crate::chat::{ChatMessage, MessageAckResponse, MessageStatus};
+use std::time::Duration;
+
+const ROOM_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::chat::PaginatedMessagesResponse;
@@ -181,9 +184,12 @@ impl MessageRouter {
         }
 
         tokio::spawn(async move {
-            match room_response.await {
-                Ok(result) => {
+            match tokio::time::timeout(ROOM_REPLY_TIMEOUT, room_response).await {
+                Ok(Ok(result)) => {
                     let _ = respond_to.send(result);
+                }
+                Ok(Err(_)) => {
+                    let _ = respond_to.send(Err("Room response channel closed".to_string()));
                 }
                 Err(_) => {
                     let _ = respond_to.send(Err("Room response timeout".to_string()));
@@ -246,11 +252,11 @@ impl MessageRouter {
             }
 
             tokio::spawn(async move {
-                match room_response.await {
-                    Ok(members) => {
+                match tokio::time::timeout(ROOM_REPLY_TIMEOUT, room_response).await {
+                    Ok(Ok(members)) => {
                         let _ = respond_to.send(Some(members));
                     }
-                    Err(_) => {
+                    Ok(Err(_)) | Err(_) => {
                         let _ = respond_to.send(None);
                     }
                 }

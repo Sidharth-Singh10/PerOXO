@@ -4,8 +4,11 @@ use crate::metrics::Metrics;
 use crate::tenant::TenantUserId;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error};
+
+const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct UserSession {
     tenant_user_id: TenantUserId,
@@ -166,8 +169,8 @@ impl UserSession {
                         } else {
                             let ack_sender_clone = ack_sender.clone();
                             tokio::spawn(async move {
-                                match response.await {
-                                    Ok(Ok(paginated_response)) => {
+                                match tokio::time::timeout(QUERY_TIMEOUT, response).await {
+                                    Ok(Ok(Ok(paginated_response))) => {
                                         let response_msg = ChatMessage::ChatHistoryResponse {
                                             messages: paginated_response.messages,
                                             has_more: paginated_response.has_more,
@@ -177,11 +180,21 @@ impl UserSession {
                                         };
                                         let _ = ack_sender_clone.send(response_msg).await;
                                     }
-                                    Ok(Err(e)) => {
+                                    Ok(Ok(Err(e))) => {
                                         error!("Failed to get chat history: {}", e);
                                     }
+                                    Ok(Err(_)) => {
+                                        error!("Chat history request channel closed");
+                                    }
                                     Err(_) => {
-                                        error!("Chat history request timeout");
+                                        error!("Chat history request timed out");
+                                        let _ = ack_sender_clone
+                                            .send(ChatMessage::ChatHistoryResponse {
+                                                messages: Vec::new(),
+                                                has_more: false,
+                                                next_cursor: None,
+                                            })
+                                            .await;
                                     }
                                 }
                             });
@@ -241,17 +254,25 @@ impl UserSession {
                         } else {
                             let ack_sender_clone = ack_sender.clone();
                             tokio::spawn(async move {
-                                match response.await {
-                                    Ok(Ok(messages)) => {
+                                match tokio::time::timeout(QUERY_TIMEOUT, response).await {
+                                    Ok(Ok(Ok(messages))) => {
                                         let response_msg =
                                             ChatMessage::SyncMessagesResponse { messages };
                                         let _ = ack_sender_clone.send(response_msg).await;
                                     }
-                                    Ok(Err(e)) => {
+                                    Ok(Ok(Err(e))) => {
                                         error!("Failed to sync messages: {}", e);
                                     }
+                                    Ok(Err(_)) => {
+                                        error!("Sync messages request channel closed");
+                                    }
                                     Err(_) => {
-                                        error!("Sync messages request timeout");
+                                        error!("Sync messages request timed out");
+                                        let _ = ack_sender_clone
+                                            .send(ChatMessage::SyncMessagesResponse {
+                                                messages: Vec::new(),
+                                            })
+                                            .await;
                                     }
                                 }
                             });

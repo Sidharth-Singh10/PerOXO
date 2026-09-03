@@ -2,9 +2,12 @@ use crate::actors::{message_router::RouterMessage, uuid_util::NODE_ID};
 use crate::chat::ChatMessage;
 use crate::metrics::Metrics;
 use crate::tenant::TenantUserId;
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error};
 use uuid::Uuid;
+
+const PERSIST_ACK_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub async fn handle_direct_message(
     conversation_id: String,
@@ -38,16 +41,31 @@ pub async fn handle_direct_message(
 
     let ack_sender_clone = ack_sender.clone();
     tokio::spawn(async move {
-        if let Ok(ack_response) = response.await {
-            let ack_message = ChatMessage::MessageAck {
-                client_message_id,
-                message_id: ack_response.message_id,
-                timestamp: ack_response.timestamp,
-                status: ack_response.status,
-            };
+        match tokio::time::timeout(PERSIST_ACK_TIMEOUT, response).await {
+            Ok(Ok(ack_response)) => {
+                let ack_message = ChatMessage::MessageAck {
+                    client_message_id,
+                    message_id: ack_response.message_id,
+                    timestamp: ack_response.timestamp,
+                    status: ack_response.status,
+                };
 
-            if let Err(e) = ack_sender_clone.send(ack_message).await {
-                error!("Failed to send acknowledgment message: {}", e);
+                if let Err(e) = ack_sender_clone.send(ack_message).await {
+                    error!("Failed to send acknowledgment message: {}", e);
+                }
+            }
+            Ok(Err(_)) => {
+                debug!("Persistence response channel closed before ack");
+            }
+            Err(_) => {
+                error!("Persistence ack timed out for message {}", server_message_id);
+                let ack_message = ChatMessage::MessageAck {
+                    client_message_id,
+                    message_id: server_message_id,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                    status: crate::chat::MessageStatus::Failed("Persistence timeout".to_string()),
+                };
+                let _ = ack_sender_clone.send(ack_message).await;
             }
         }
     });
@@ -89,14 +107,29 @@ pub async fn handle_room_message(
 
     let ack_sender = ack_sender.clone();
     tokio::spawn(async move {
-        if let Ok(ack_response) = response.await {
-            let ack_msg = ChatMessage::MessageAck {
-                client_message_id,
-                message_id: ack_response.message_id,
-                timestamp: ack_response.timestamp,
-                status: ack_response.status,
-            };
-            let _ = ack_sender.send(ack_msg).await;
+        match tokio::time::timeout(PERSIST_ACK_TIMEOUT, response).await {
+            Ok(Ok(ack_response)) => {
+                let ack_msg = ChatMessage::MessageAck {
+                    client_message_id,
+                    message_id: ack_response.message_id,
+                    timestamp: ack_response.timestamp,
+                    status: ack_response.status,
+                };
+                let _ = ack_sender.send(ack_msg).await;
+            }
+            Ok(Err(_)) => {
+                debug!("Room persistence response channel closed before ack");
+            }
+            Err(_) => {
+                error!("Room persistence ack timed out for message {}", server_message_id);
+                let ack_msg = ChatMessage::MessageAck {
+                    client_message_id,
+                    message_id: server_message_id,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                    status: crate::chat::MessageStatus::Failed("Persistence timeout".to_string()),
+                };
+                let _ = ack_sender.send(ack_msg).await;
+            }
         }
     });
 
