@@ -2,10 +2,10 @@ use crate::actors::{message_router::RouterMessage, user_session::handlers};
 use crate::chat::ChatMessage;
 use crate::metrics::Metrics;
 use crate::tenant::TenantUserId;
-use axum::extract::ws::{Message, WebSocket};
+use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{debug, error};
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -18,6 +18,7 @@ pub struct UserSession {
     router_sender: mpsc::Sender<RouterMessage>,
     session_receiver: mpsc::Receiver<ChatMessage>,
     session_sender: mpsc::Sender<ChatMessage>,
+    drain_rx: broadcast::Receiver<()>,
 }
 
 impl UserSession {
@@ -25,6 +26,7 @@ impl UserSession {
         tenant_user_id: TenantUserId,
         socket: WebSocket,
         router_sender: mpsc::Sender<RouterMessage>,
+        drain_rx: broadcast::Receiver<()>,
     ) -> Result<Self, String> {
         // get a better number
         const CHANNEL_BUFFER_SIZE: usize = 100;
@@ -60,6 +62,7 @@ impl UserSession {
             router_sender,
             session_receiver,
             session_sender,
+            drain_rx,
         })
     }
 
@@ -69,6 +72,7 @@ impl UserSession {
         let router_sender = self.router_sender.clone();
         let session_sender_for_rooms = self.session_sender.clone();
         let mut session_receiver = self.session_receiver;
+        let mut drain_rx = self.drain_rx;
 
         let (ack_sender, mut ack_receiver) = mpsc::channel::<ChatMessage>(100);
 
@@ -140,6 +144,34 @@ impl UserSession {
                             );
                             break;
                         }
+                    }
+                    drain = drain_rx.recv() => {
+                        match drain {
+                            Ok(()) => {
+                                // Graceful shutdown: tell the client we are
+                                // going away, then close the session so the
+                                // connection drains and UnregisterUser runs.
+                                debug!(
+                                    "Server shutdown, closing session for {}",
+                                    tenant_user_id_clone
+                                );
+                                let _ = ws_sender
+                                    .send(Message::Close(Some(CloseFrame {
+                                        code: 1001, // going away
+                                        reason: "server shutdown".into(),
+                                    })))
+                                    .await;
+                            }
+                            Err(_) => {
+                                // Sender dropped or lagged; the session is
+                                // ending either way.
+                                debug!(
+                                    "Drain signal lost for {}, closing session",
+                                    tenant_user_id_clone
+                                );
+                            }
+                        }
+                        break;
                     }
                 }
             }

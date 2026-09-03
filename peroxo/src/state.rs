@@ -20,6 +20,9 @@ pub struct PerOxoState {
     pub connection_manager: Arc<ConnectionManager>,
     pub router_sender: mpsc::Sender<RouterMessage>,
     pub auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
+    /// Broadcast that signals active WebSocket sessions to close during
+    /// graceful shutdown.
+    pub drain_tx: tokio::sync::broadcast::Sender<()>,
     #[cfg(feature = "persistence")]
     pub chat_client: ChatServiceClient<Channel>,
 }
@@ -35,14 +38,20 @@ impl PerOxoState {
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
             persistence,
         );
-        let connection_manager = Arc::new(ConnectionManager::new(router_sender.clone()));
 
         tokio::spawn(router.run());
+
+        let (drain_tx, _) = tokio::sync::broadcast::channel(1);
+        let connection_manager = Arc::new(ConnectionManager::new(
+            router_sender.clone(),
+            drain_tx.clone(),
+        ));
 
         Ok(Self {
             connection_manager,
             router_sender,
             auth_client,
+            drain_tx,
             #[cfg(feature = "persistence")]
             chat_client: chat_service_client,
         })
