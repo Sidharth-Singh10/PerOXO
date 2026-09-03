@@ -1,5 +1,22 @@
+use scylla::statement::Consistency;
 use scylla::value::CqlTimestamp;
+use std::sync::OnceLock;
 use uuid::Uuid;
+
+/// Consistency level for writes, configurable via `SCYLLA_CONSISTENCY`
+/// (default: `LocalQuorum` for durability). Single-node dev setups should
+/// set it to `One`.
+pub fn write_consistency() -> Consistency {
+    static CONSISTENCY: OnceLock<Consistency> = OnceLock::new();
+    *CONSISTENCY.get_or_init(|| match std::env::var("SCYLLA_CONSISTENCY").as_deref() {
+        Ok("One") => Consistency::One,
+        Ok("Quorum") => Consistency::Quorum,
+        Ok("LocalQuorum") => Consistency::LocalQuorum,
+        Ok("EachQuorum") => Consistency::EachQuorum,
+        Ok("All") => Consistency::All,
+        _ => Consistency::LocalQuorum,
+    })
+}
 
 pub struct DbMessage {
     pub conversation_id: String,

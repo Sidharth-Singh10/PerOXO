@@ -1,7 +1,6 @@
 use crate::chat_services::ChatServiceImpl;
 use scylla::client::session_builder::SessionBuilder;
 use scylla::client::{execution_profile::ExecutionProfile, session::Session};
-use scylla::statement::Consistency;
 use scylla::statement::prepared::PreparedStatement;
 use std::env;
 use std::error::Error;
@@ -58,7 +57,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     run_database_migrations(&scylla_host).await?;
 
     let profile = ExecutionProfile::builder()
-        .consistency(Consistency::One)
+        .consistency(crate::utils::write_consistency())
         .build();
 
     let session: Session = SessionBuilder::new()

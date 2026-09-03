@@ -3,7 +3,6 @@ use std::sync::Arc;
 use scylla::{
     client::session::Session,
     statement::{
-        Consistency,
         batch::{Batch, BatchType},
     },
     value::{CqlTimestamp, CqlTimeuuid},
@@ -251,8 +250,10 @@ pub async fn write_direct_message(
         VALUES (?, ?, ?, ?)"
     );
 
-    // Consistency::One is fine for dev; consider Quorum for prod
-    batch.set_consistency(Consistency::One);
+    // Durability: default to LocalQuorum so a write is acknowledged only
+    // after at least one replica besides the coordinator has it. Dev
+    // single-node setups can override with SCYLLA_CONSISTENCY=One.
+    batch.set_consistency(crate::utils::write_consistency());
 
     let batch_values = (
         // Statement 1: direct_messages
@@ -306,7 +307,7 @@ pub async fn write_room_message(
         "UPDATE affinity.project_rooms SET last_activity = ? WHERE project_id = ? AND room_id = ?",
     );
 
-    batch.set_consistency(Consistency::One);
+    batch.set_consistency(crate::utils::write_consistency());
 
     let batch_values = (
         // Statement 1: room_messages

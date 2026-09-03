@@ -27,6 +27,9 @@ services:
     environment:
       - RUST_LOG=info
       - SCYLLA_HOST=scylladb:9042
+      # single-node dev cluster: One would be the durable LocalQuorum value in prod
+      - SCYLLA_CONSISTENCY=One
+      - SCYLLA_REPLICATION_FACTOR=1
       - GRPC_ADDR=[::]:50052
     healthcheck:
       test: ["CMD", "grpc_health_probe", "-addr=localhost:50052"]

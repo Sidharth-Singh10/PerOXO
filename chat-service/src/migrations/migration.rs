@@ -41,13 +41,19 @@ impl DatabaseMigrations {
     }
 
     async fn create_keyspace(&self) -> Result<(), Box<dyn Error>> {
-        let query = r#"
-            CREATE KEYSPACE IF NOT EXISTS affinity
-            WITH REPLICATION = {
-                'class': 'SimpleStrategy',
-                'replication_factor': 1
-            }
-        "#;
+        // Replication factor defaults to 3 for durability; single-node dev
+        // clusters should set SCYLLA_REPLICATION_FACTOR=1. Note this only
+        // affects new keyspaces — ALTER is needed to change an existing one.
+        let replication_factor = std::env::var("SCYLLA_REPLICATION_FACTOR")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(3);
+
+        let query = format!(
+            "CREATE KEYSPACE IF NOT EXISTS affinity \
+             WITH REPLICATION = {{ 'class': 'SimpleStrategy', 'replication_factor': {} }}",
+            replication_factor
+        );
 
         println!("Creating keyspace 'affinity'...");
         let prepared = self.session.prepare(query).await?;
