@@ -3,6 +3,7 @@ use axum::{
     http::{StatusCode, request::Parts},
 };
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::{
     UserToken, VerifyUserTokenRequest,
@@ -58,9 +59,13 @@ async fn verify_token(
     let mut client = state.auth_client.clone();
     let req = tonic::Request::new(VerifyUserTokenRequest { token });
 
-    let resp = client
-        .verify_user_token(req)
+    // A hung auth-service must not wedge WebSocket handshakes forever.
+    // (Known limitation: if the service was previously unavailable the
+    // underlying channel may keep returning a transport error quickly;
+    // this timeout guarantees we never wait indefinitely either way.)
+    let resp = tokio::time::timeout(Duration::from_secs(5), client.verify_user_token(req))
         .await
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Auth service timeout".to_string()))?
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
