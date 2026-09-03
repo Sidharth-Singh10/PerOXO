@@ -365,7 +365,7 @@ pub async fn getsert_conversation_id(
         }
     }
 
-    let new_conversation_id = Uuid::new_v4().to_string();
+    let new_conversation_id = deterministic_conversation_id(project_id, user_id_1, user_id_2);
 
     let insert_query = r#"
         INSERT INTO affinity.dm_lookup (project_id, user_id_1, user_id_2, conversation_id, created_at)
@@ -380,6 +380,16 @@ pub async fn getsert_conversation_id(
         .await?;
 
     Ok((new_conversation_id, true))
+}
+
+/// Derives a conversation id from the (already sorted) user pair instead of
+/// a random UUID. Two callers racing between the SELECT and the INSERT for
+/// the same pair always converge on the same id, so a conversation can never
+/// be split across differently-id'd rows. Existing rows created with
+/// random ids are still returned by the SELECT, keeping them consistent.
+fn deterministic_conversation_id(project_id: &str, user_id_1: &str, user_id_2: &str) -> String {
+    let key = format!("{}|{}|{}", project_id, user_id_1, user_id_2);
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, key.as_bytes()).to_string()
 }
 
 // pub fn create_dm(
