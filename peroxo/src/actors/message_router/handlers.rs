@@ -10,6 +10,14 @@ use std::time::Duration;
 
 const ROOM_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Room registry keys are namespaced by tenant so that two projects using
+/// the same room name can never share a RoomActor (cross-tenant broadcast
+/// leak). The RoomActor itself keeps the raw room_id so persistence stays
+/// tenant-scoped via the sender's project_id.
+fn ns_room(project_id: &str, room_id: &str) -> String {
+    format!("{}:{room_id}", project_id)
+}
+
 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
 use crate::chat::PaginatedMessagesResponse;
 
@@ -194,7 +202,17 @@ impl MessageRouter {
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     ) {
-        let room_sender = if let Some(sender) = self.rooms.get(&room_id) {
+        let room_key = ns_room(&tenant_user_id.project_id, &room_id);
+
+        // If the previous actor for this room died (receiver dropped) before
+        // the periodic sweep removed it, drop the stale handle and recreate.
+        if let Some(room_sender) = self.rooms.get(&room_key) {
+            if room_sender.is_closed() {
+                self.rooms.remove(&room_key);
+            }
+        }
+
+        let room_sender = if let Some(sender) = self.rooms.get(&room_key) {
             sender.clone()
         } else {
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
@@ -208,7 +226,7 @@ impl MessageRouter {
             };
 
             tokio::spawn(room_actor.run());
-            self.rooms.insert(room_id.clone(), room_sender.clone());
+            self.rooms.insert(room_key.clone(), room_sender.clone());
             info!("Created new room actor for room {}", room_id);
             room_sender
         };
@@ -241,7 +259,8 @@ impl MessageRouter {
     }
 
     pub async fn handle_leave_room(&mut self, tenant_user_id: TenantUserId, room_id: String) {
-        if let Some(room_sender) = self.rooms.get(&room_id) {
+        let room_key = ns_room(&tenant_user_id.project_id, &room_id);
+        if let Some(room_sender) = self.rooms.get(&room_key) {
             let room_msg = RoomMessage::RemoveMember { tenant_user_id };
             let _ = room_sender.send(room_msg).await;
         }
@@ -255,15 +274,30 @@ impl MessageRouter {
         message_id: uuid::Uuid,
         respond_to: Option<oneshot::Sender<MessageAckResponse>>,
     ) {
-        if let Some(room_sender) = self.rooms.get(&room_id) {
+        let room_key = ns_room(&from.project_id, &room_id);
+        if let Some(room_sender) = self.rooms.get(&room_key) {
             let room_msg = RoomMessage::SendMessage {
                 from,
                 content,
                 message_id,
                 respond_to,
             };
-            if room_sender.send(room_msg).await.is_err() {
-                error!("Failed to send message to room {}", room_id);
+            match room_sender.send(room_msg).await {
+                Ok(()) => {}
+                Err(mpsc::error::SendError(returned)) => {
+                    error!("Failed to send message to room {}", room_id);
+                    let respond_to = match returned {
+                        RoomMessage::SendMessage { respond_to, .. } => respond_to,
+                        _ => None,
+                    };
+                    if let Some(responder) = respond_to {
+                        let _ = responder.send(MessageAckResponse {
+                            message_id,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                            status: MessageStatus::Failed("Room unavailable".to_string()),
+                        });
+                    }
+                }
             }
         } else {
             debug!("Room {} not found", room_id);

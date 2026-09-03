@@ -194,10 +194,14 @@ impl UserSession {
                     }
                     #[cfg(feature = "persistence")]
                     Ok(ChatMessage::GetPaginatedMessages {
-                        project_id,
+                        project_id: _,
                         message_id,
                         conversation_id,
                     }) => {
+                        // Tenant isolation: never trust the client-supplied
+                        // project_id; always query within the authenticated
+                        // tenant.
+                        let project_id = tenant_user_id_clone.project_id.clone();
                         let (respond_to, response) = oneshot::channel();
                         let router_msg = RouterMessage::GetPaginatedMessages {
                             project_id,
@@ -279,10 +283,14 @@ impl UserSession {
 
                     #[cfg(feature = "persistence")]
                     Ok(ChatMessage::SyncMessages {
-                        project_id,
+                        project_id: _,
                         conversation_id,
                         message_id,
                     }) => {
+                        // Tenant isolation: never trust the client-supplied
+                        // project_id; always query within the authenticated
+                        // tenant.
+                        let project_id = tenant_user_id_clone.project_id.clone();
                         let (respond_to, response) = oneshot::channel();
                         let router_msg = RouterMessage::SyncMessages {
                             project_id,

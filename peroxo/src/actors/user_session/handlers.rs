@@ -1,5 +1,5 @@
 use crate::actors::{message_router::RouterMessage, uuid_util::NODE_ID};
-use crate::chat::ChatMessage;
+use crate::chat::{ChatMessage, MessageStatus};
 use crate::metrics::Metrics;
 use crate::tenant::TenantUserId;
 use std::time::Duration;
@@ -19,11 +19,28 @@ pub async fn handle_direct_message(
     ack_sender: &mpsc::Sender<ChatMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     Metrics::websocket_message_received();
-    // let user_id = user_token.user_id.parse::<i32>()?;
-
-    let (respond_to, response) = oneshot::channel();
 
     let server_message_id = Uuid::now_v1(&NODE_ID);
+
+    // Tenant isolation: a sender may only message users inside its own
+    // project. Cross-tenant payloads are rejected with an explicit Failed
+    // ack instead of being forwarded to the router.
+    if to.project_id != user_token.project_id {
+        error!(
+            "User {} attempted cross-tenant message to {}",
+            user_token, to
+        );
+        let ack_message = ChatMessage::MessageAck {
+            client_message_id,
+            message_id: server_message_id,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            status: MessageStatus::Failed("Cross-tenant recipient rejected".to_string()),
+        };
+        let _ = ack_sender.send(ack_message).await;
+        return Ok(());
+    }
+
+    let (respond_to, response) = oneshot::channel();
 
     let router_msg = RouterMessage::SendDirectMessage {
         conversation_id,
