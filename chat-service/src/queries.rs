@@ -29,7 +29,10 @@ pub async fn fetch_user_conversations(
     project_id: &str,
     user_id: &str,
 ) -> Result<Vec<(String, CqlTimestamp)>, Box<dyn std::error::Error>> {
-    let query = "SELECT conversation_id, last_message FROM affinity.user_conversations WHERE project_id = ? AND user_id = ?";
+    // Bounded: a user with thousands of conversations must not force the
+    // whole list into memory. Keyset pagination (conversation_id > cursor)
+    // can be added to the RPC later if needed.
+    let query = "SELECT conversation_id, last_message FROM affinity.user_conversations WHERE project_id = ? AND user_id = ? LIMIT 50";
 
     let result = session.query_unpaged(query, (project_id, user_id)).await?;
 
@@ -49,10 +52,13 @@ pub async fn fetch_conversation_history(
     project_id: &str,
     conversation_id: &str,
 ) -> Result<Vec<(Uuid, String, String, String, CqlTimestamp)>, Box<dyn std::error::Error>> {
+    // Bounded: an unbounded conversation must not be materialized in memory.
+    // Cap at 100 rows; clients should use the paginated RPC for more.
     let query = r#"
         SELECT message_id, message_text, sender_id, recipient_id, created_at 
         FROM direct_messages 
         WHERE project_id = ? AND conversation_id = ?
+        LIMIT 100
     "#;
 
     let result = session

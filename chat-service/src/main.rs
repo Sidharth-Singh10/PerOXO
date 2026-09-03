@@ -28,6 +28,7 @@ pub async fn prepare_queries(
         SELECT conversation_id, message_id, sender_id, recipient_id, message_text, created_at 
         FROM affinity.direct_messages 
         WHERE project_id = ? AND conversation_id = ? AND message_id > ?
+        LIMIT 200
     "#;
 
     let q_fetch_after_message_id = session.prepare(query_text).await?;
