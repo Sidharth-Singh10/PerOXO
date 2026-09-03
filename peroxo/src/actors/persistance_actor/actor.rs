@@ -5,6 +5,7 @@ use tonic::transport::Channel;
 use crate::chat_service_client::ChatServiceClient;
 #[cfg(feature = "mongo_db")]
 use crate::mongo_db::config::MongoDbConfig;
+use std::sync::Arc;
 
 pub struct PersistenceService {
     #[cfg(feature = "persistence")]
@@ -13,7 +14,12 @@ pub struct PersistenceService {
     pub mango_db_client: mongodb::Client,
     #[cfg(feature = "mongo_db")]
     pub mongo_config: MongoDbConfig,
+    /// Bounds the number of in-flight gRPC persistence calls to prevent
+    /// unbounded task spawns from overwhelming chat-service.
+    pub semaphore: Arc<tokio::sync::Semaphore>,
 }
+
+const MAX_CONCURRENT_PERSISTENCE: usize = 256;
 
 impl PersistenceService {
     pub fn new(
@@ -28,6 +34,7 @@ impl PersistenceService {
             mango_db_client,
             #[cfg(feature = "mongo_db")]
             mongo_config,
+            semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PERSISTENCE)),
         }
     }
 }

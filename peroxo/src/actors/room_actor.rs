@@ -42,7 +42,7 @@ pub enum RoomMessage {
 
 pub struct RoomActor {
     room_id: String,
-    receiver: mpsc::UnboundedReceiver<RoomMessage>,
+    receiver: mpsc::Receiver<RoomMessage>,
     members: HashMap<TenantUserId, mpsc::Sender<ChatMessage>>,
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     persistence: Option<Arc<PersistenceService>>,
@@ -54,8 +54,10 @@ impl RoomActor {
         #[cfg(any(feature = "mongo_db", feature = "persistence"))] persistence: Arc<
             PersistenceService,
         >,
-    ) -> (Self, mpsc::UnboundedSender<RoomMessage>) {
-        let (sender, receiver) = mpsc::unbounded_channel();
+    ) -> (Self, mpsc::Sender<RoomMessage>) {
+        const ROOM_MAILBOX_CAPACITY: usize = 2_048;
+
+        let (sender, receiver) = mpsc::channel(ROOM_MAILBOX_CAPACITY);
 
         let actor = Self {
             room_id,

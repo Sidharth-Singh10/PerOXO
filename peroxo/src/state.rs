@@ -18,7 +18,7 @@ use crate::actors::persistance_actor::PersistenceService;
 
 pub struct PerOxoState {
     pub connection_manager: Arc<ConnectionManager>,
-    pub router_sender: mpsc::UnboundedSender<RouterMessage>,
+    pub router_sender: mpsc::Sender<RouterMessage>,
     pub auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
     #[cfg(feature = "persistence")]
     pub chat_client: ChatServiceClient<Channel>,

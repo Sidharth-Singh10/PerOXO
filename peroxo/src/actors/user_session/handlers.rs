@@ -15,7 +15,7 @@ pub async fn handle_direct_message(
     to: TenantUserId,
     content: String,
     client_message_id: Uuid,
-    router_sender: &mpsc::UnboundedSender<RouterMessage>,
+    router_sender: &mpsc::Sender<RouterMessage>,
     ack_sender: &mpsc::Sender<ChatMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     Metrics::websocket_message_received();
@@ -34,7 +34,7 @@ pub async fn handle_direct_message(
         respond_to: Some(respond_to),
     };
 
-    if router_sender.send(router_msg).is_err() {
+    if router_sender.send(router_msg).await.is_err() {
         error!("Failed to send message to router for user {}", user_token);
         return Err("Router communication failed".into());
     }
@@ -83,7 +83,7 @@ pub async fn handle_room_message(
     from: TenantUserId,
     content: String,
     client_message_id: uuid::Uuid,
-    router_sender: &mpsc::UnboundedSender<RouterMessage>,
+    router_sender: &mpsc::Sender<RouterMessage>,
     ack_sender: &mpsc::Sender<ChatMessage>,
 ) -> Result<(), String> {
     if from != user_id {
@@ -103,6 +103,7 @@ pub async fn handle_room_message(
 
     router_sender
         .send(router_msg)
+        .await
         .map_err(|_| "Failed to send to router".to_string())?;
 
     let ack_sender = ack_sender.clone();

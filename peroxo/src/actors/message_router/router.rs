@@ -9,13 +9,15 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::info;
 
+const ROUTER_MAILBOX_CAPACITY: usize = 16_384;
+
 pub struct MessageRouter {
-    pub receiver: mpsc::UnboundedReceiver<RouterMessage>,
+    pub receiver: mpsc::Receiver<RouterMessage>,
     pub users: HashMap<TenantUserId, mpsc::Sender<ChatMessage>>,
     pub online_users: Vec<TenantUserId>,
     #[cfg(any(feature = "mongo_db", feature = "persistence"))]
     pub persistence: Option<Arc<PersistenceService>>,
-    pub rooms: HashMap<String, mpsc::UnboundedSender<RoomMessage>>,
+    pub rooms: HashMap<String, mpsc::Sender<RoomMessage>>,
 }
 
 impl MessageRouter {
@@ -23,8 +25,8 @@ impl MessageRouter {
         #[cfg(any(feature = "mongo_db", feature = "persistence"))] persistence: Arc<
             PersistenceService,
         >,
-    ) -> (Self, mpsc::UnboundedSender<RouterMessage>) {
-        let (sender, receiver) = mpsc::unbounded_channel();
+    ) -> (Self, mpsc::Sender<RouterMessage>) {
+        let (sender, receiver) = mpsc::channel(ROUTER_MAILBOX_CAPACITY);
 
         let router = Self {
             receiver,

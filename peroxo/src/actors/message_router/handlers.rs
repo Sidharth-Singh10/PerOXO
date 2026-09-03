@@ -188,7 +188,7 @@ impl MessageRouter {
             respond_to: room_respond_to,
         };
 
-        if room_sender.send(room_msg).is_err() {
+        if room_sender.send(room_msg).await.is_err() {
             let _ = respond_to.send(Err("Failed to communicate with room".to_string()));
             return;
         }
@@ -211,7 +211,7 @@ impl MessageRouter {
     pub async fn handle_leave_room(&mut self, tenant_user_id: TenantUserId, room_id: String) {
         if let Some(room_sender) = self.rooms.get(&room_id) {
             let room_msg = RoomMessage::RemoveMember { tenant_user_id };
-            let _ = room_sender.send(room_msg);
+            let _ = room_sender.send(room_msg).await;
         }
     }
 
@@ -230,7 +230,7 @@ impl MessageRouter {
                 message_id,
                 respond_to,
             };
-            if room_sender.send(room_msg).is_err() {
+            if room_sender.send(room_msg).await.is_err() {
                 error!("Failed to send message to room {}", room_id);
             }
         } else {
@@ -256,7 +256,7 @@ impl MessageRouter {
                 respond_to: room_respond_to,
             };
 
-            if room_sender.send(room_msg).is_err() {
+            if room_sender.send(room_msg).await.is_err() {
                 let _ = respond_to.send(None);
                 return;
             }

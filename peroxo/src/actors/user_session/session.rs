@@ -13,7 +13,7 @@ const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct UserSession {
     tenant_user_id: TenantUserId,
     socket: WebSocket,
-    router_sender: mpsc::UnboundedSender<RouterMessage>,
+    router_sender: mpsc::Sender<RouterMessage>,
     session_receiver: mpsc::Receiver<ChatMessage>,
     session_sender: mpsc::Sender<ChatMessage>,
 }
@@ -22,7 +22,7 @@ impl UserSession {
     pub async fn new(
         tenant_user_id: TenantUserId,
         socket: WebSocket,
-        router_sender: mpsc::UnboundedSender<RouterMessage>,
+        router_sender: mpsc::Sender<RouterMessage>,
     ) -> Result<Self, String> {
         // get a better number
         const CHANNEL_BUFFER_SIZE: usize = 100;
@@ -36,7 +36,7 @@ impl UserSession {
             respond_to,
         };
 
-        if router_sender.send(register_msg).is_err() {
+        if router_sender.send(register_msg).await.is_err() {
             return Err("Failed to communicate with message router".to_string());
         }
 
@@ -164,7 +164,7 @@ impl UserSession {
                             respond_to,
                         };
 
-                        if router_sender_clone.send(router_msg).is_err() {
+                        if router_sender_clone.send(router_msg).await.is_err() {
                             error!("Failed to send chat history request to router");
                         } else {
                             let ack_sender_clone = ack_sender.clone();
@@ -230,7 +230,7 @@ impl UserSession {
                             respond_to,
                         };
 
-                        if router_sender_clone.send(router_msg).is_err() {
+                        if router_sender_clone.send(router_msg).await.is_err() {
                             error!("Failed to send join room request to router");
                         }
                     }
@@ -249,7 +249,7 @@ impl UserSession {
                             respond_to,
                         };
 
-                        if router_sender_clone.send(router_msg).is_err() {
+                        if router_sender_clone.send(router_msg).await.is_err() {
                             error!("Failed to send sync messages request to router");
                         } else {
                             let ack_sender_clone = ack_sender.clone();
@@ -307,7 +307,7 @@ impl UserSession {
         let unregister_msg = RouterMessage::UnregisterUser {
             tenant_user_id: self.tenant_user_id.clone(),
         };
-        let _ = router_sender.send(unregister_msg);
+        let _ = router_sender.send(unregister_msg).await;
 
         Metrics::websocket_disconnected();
 

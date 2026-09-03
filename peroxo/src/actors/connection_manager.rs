@@ -8,11 +8,11 @@ use tokio::sync::mpsc;
 use tracing::{error, info};
 
 pub struct ConnectionManager {
-    router_sender: mpsc::UnboundedSender<RouterMessage>,
+    router_sender: mpsc::Sender<RouterMessage>,
 }
 
 impl ConnectionManager {
-    pub fn new(router_sender: mpsc::UnboundedSender<RouterMessage>) -> Self {
+    pub fn new(router_sender: mpsc::Sender<RouterMessage>) -> Self {
         Self { router_sender }
     }
 

@@ -23,6 +23,13 @@ impl PersistenceService {
         message_id: uuid::Uuid,
         timestamp: i64,
     ) -> Result<(), String> {
+        let _permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| format!("persistence queue closed: {}", e))?;
+
         #[cfg(feature = "mongo_db")]
         {
             use crate::metrics::Metrics;
@@ -202,6 +209,13 @@ impl PersistenceService {
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
     ) -> Result<PaginatedMessagesResponse, String> {
+        let _permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| format!("persistence queue closed: {}", e))?;
+
         #[cfg(feature = "mongo_db")]
         {
             return self
@@ -346,6 +360,13 @@ impl PersistenceService {
         message_id: uuid::Uuid,
         timestamp: i64,
     ) -> Result<(), String> {
+        let _permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| format!("persistence queue closed: {}", e))?;
+
         use crate::WriteRoomMessageRequest;
 
         let request = WriteRoomMessageRequest {
@@ -433,6 +454,13 @@ impl PersistenceService {
         conversation_id: String,
         message_id: uuid::Uuid,
     ) -> Result<Vec<crate::chat::ResponseDirectMessage>, String> {
+        let _permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| format!("persistence queue closed: {}", e))?;
+
         use tonic::Request;
 
         use crate::SyncMessagesRequest;
