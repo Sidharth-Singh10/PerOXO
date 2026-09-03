@@ -74,6 +74,9 @@ impl RoomActor {
         info!("Room actor started for room: {}", self.room_id);
 
         let mut cleanup_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        // Consume the immediate first tick so a freshly created empty room
+        // is not torn down before its first AddMember arrives.
+        cleanup_interval.tick().await;
 
         loop {
             tokio::select! {
@@ -93,6 +96,14 @@ impl RoomActor {
                             before - after,
                             self.room_id
                         );
+                    }
+                    if after == 0 {
+                        // No members: retire the actor. Its receiver drops,
+                        // which closes the channel from the router's
+                        // perspective, and the router's periodic sweep then
+                        // removes the room from its registry.
+                        info!("Room actor stopped for room: {} (no members)", self.room_id);
+                        break;
                     }
                 }
             }

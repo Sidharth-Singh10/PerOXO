@@ -147,6 +147,7 @@ impl MessageRouter {
                 }
                 _ = stale_cleanup.tick() => {
                     self.remove_stale_sessions();
+                    self.remove_stale_rooms();
                 }
             }
         }

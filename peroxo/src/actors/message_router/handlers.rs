@@ -48,6 +48,25 @@ impl MessageRouter {
         }
     }
 
+    pub(crate) fn remove_stale_rooms(&mut self) {
+        let before = self.rooms.len();
+        if before == 0 {
+            return;
+        }
+
+        // A room actor that retired (no members / receiver dropped) closes
+        // its channel; drop the stale handle so the room can be recreated
+        // and the map cannot grow unboundedly with never-rejoined rooms.
+        self.rooms.retain(|_, sender| !sender.is_closed());
+
+        if self.rooms.len() != before {
+            info!(
+                "Removed {} stale rooms whose actors shut down",
+                before - self.rooms.len()
+            );
+        }
+    }
+
     pub async fn handle_register_user(
         &mut self,
         tenant_user_id: TenantUserId,
