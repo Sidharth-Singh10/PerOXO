@@ -43,8 +43,14 @@ impl MessageRouter {
     pub async fn run(mut self) {
         info!("Message router started");
 
-        while let Some(message) = self.receiver.recv().await {
-            match message {
+        let mut stale_cleanup = tokio::time::interval(std::time::Duration::from_secs(60));
+        stale_cleanup.tick().await;
+
+        loop {
+            tokio::select! {
+                message = self.receiver.recv() => {
+                    match message {
+                        Some(message) => match message {
                 RouterMessage::RegisterUser {
                     tenant_user_id,
                     sender,
@@ -134,6 +140,13 @@ impl MessageRouter {
                 } => {
                     self.handle_sync_messages(project_id, conversation_id, message_id, respond_to)
                         .await;
+                }
+                        },
+                        None => break,
+                    }
+                }
+                _ = stale_cleanup.tick() => {
+                    self.remove_stale_sessions();
                 }
             }
         }

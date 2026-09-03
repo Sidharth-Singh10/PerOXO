@@ -9,6 +9,8 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error};
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
+const WS_PING_INTERVAL: Duration = Duration::from_secs(30);
+const WS_READ_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub struct UserSession {
     tenant_user_id: TenantUserId,
@@ -69,6 +71,13 @@ impl UserSession {
         let mut session_receiver = self.session_receiver;
 
         let (ack_sender, mut ack_receiver) = mpsc::channel::<ChatMessage>(100);
+
+        // Heartbeat: ping the client periodically so half-open connections
+        // (NAT timeouts, network partitions) are eventually detected when the
+        // client stops responding with pongs.
+        let mut ping_interval = tokio::time::interval(WS_PING_INTERVAL);
+        ping_interval.tick().await;
+
         // Task to handle outgoing messages (from session to WebSocket)
         let tenant_user_id_clone = self.tenant_user_id.clone();
         let mut send_task = tokio::spawn(async move {
@@ -119,6 +128,19 @@ impl UserSession {
                             None => break, // Channel closed
                         }
                     }
+                    _ = ping_interval.tick() => {
+                        if ws_sender
+                            .send(Message::Ping(Default::default()))
+                            .await
+                            .is_err()
+                        {
+                            debug!(
+                                "WebSocket ping failed for user {}, likely disconnected",
+                                tenant_user_id_clone
+                            );
+                            break;
+                        }
+                    }
                 }
             }
         });
@@ -128,7 +150,27 @@ impl UserSession {
         let router_sender_clone = router_sender.clone();
 
         let mut recv_task = tokio::spawn(async move {
-            while let Some(Ok(Message::Text(text))) = ws_receiver.next().await {
+            loop {
+                let frame = tokio::time::timeout(WS_READ_TIMEOUT, ws_receiver.next()).await;
+
+                let text = match frame {
+                    Err(_) => {
+                        debug!(
+                            "WebSocket read timed out for {}, closing session",
+                            tenant_user_id_clone
+                        );
+                        break;
+                    }
+                    Ok(None) => break,
+                    Ok(Some(Err(e))) => {
+                        debug!("WebSocket error for {}: {}", tenant_user_id_clone, e);
+                        break;
+                    }
+                    Ok(Some(Ok(Message::Close(_)))) => break,
+                    Ok(Some(Ok(Message::Text(text)))) => text,
+                    Ok(Some(Ok(_))) => continue, // Ping/Pong/Binary
+                };
+
                 match serde_json::from_str::<ChatMessage>(&text) {
                     Ok(ChatMessage::SendDirectMessage {
                         conversation_id,

@@ -16,15 +16,45 @@ use crate::chat::PaginatedMessagesResponse;
 use crate::tenant::TenantUserId;
 
 impl MessageRouter {
+    fn remove_user(&mut self, tenant_user_id: &TenantUserId) {
+        if self.users.remove(tenant_user_id).is_some() {
+            self.online_users.retain(|u| u != tenant_user_id);
+        }
+    }
+
+    pub(crate) fn remove_stale_sessions(&mut self) {
+        let before = self.users.len();
+        if before == 0 {
+            return;
+        }
+
+        self.users.retain(|_, sender| !sender.is_closed());
+
+        if self.users.len() != before {
+            let alive: std::collections::HashSet<&TenantUserId> = self.users.keys().collect();
+            self.online_users.retain(|u| alive.contains(u));
+            info!(
+                "Removed {} stale sessions whose channels were closed",
+                before - self.users.len()
+            );
+        }
+    }
+
     pub async fn handle_register_user(
         &mut self,
         tenant_user_id: TenantUserId,
         sender: mpsc::Sender<ChatMessage>,
         respond_to: oneshot::Sender<Result<(), String>>,
     ) {
-        if self.users.contains_key(&tenant_user_id) {
-            let _ = respond_to.send(Err("User already online".to_string()));
-            return;
+        if let Some(existing) = self.users.get(&tenant_user_id) {
+            if existing.is_closed() {
+                // The previous session died without unregistering; replace it
+                // instead of blocking reconnects forever with "User already online".
+                self.remove_user(&tenant_user_id);
+            } else {
+                let _ = respond_to.send(Err("User already online".to_string()));
+                return;
+            }
         }
         // clone?????
         self.users.insert(tenant_user_id.clone(), sender);
@@ -36,13 +66,11 @@ impl MessageRouter {
     }
     // must be a better way
     pub async fn handle_unregister_user(&mut self, tenant_user_id: TenantUserId) {
-        if self.users.remove(&tenant_user_id).is_some() {
-            self.online_users.retain(|u| u != &tenant_user_id);
-        }
+        self.remove_user(&tenant_user_id);
     }
 
     pub async fn handle_direct_message(
-        &self,
+        &mut self,
         conversation_id: String,
         from: TenantUserId,
         to: TenantUserId,
@@ -60,7 +88,7 @@ impl MessageRouter {
             chrono::Utc::now().timestamp_millis(),
         );
 
-        let delivery_outcome: Option<&'static str> = match self.users.get(&to) {
+        let delivery_outcome: Option<&'static str> = match self.users.get(&to).cloned() {
             Some(recipient_sender) => {
                 let message = ChatMessage::DirectMessage {
                     from,
@@ -92,6 +120,10 @@ impl MessageRouter {
 
         if let Some(reason) = delivery_outcome {
             crate::metrics::Metrics::websocket_message_dropped(reason);
+        }
+
+        if delivery_outcome == Some("channel_closed") {
+            self.remove_user(&to);
         }
 
         #[cfg(any(feature = "mongo_db", feature = "persistence"))]
