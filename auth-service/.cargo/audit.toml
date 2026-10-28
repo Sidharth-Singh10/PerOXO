@@ -1,0 +1,8 @@
+# cargo-audit configuration.
+#
+# RUSTSEC-2023-0071 (rsa 0.9.10, Marvin Attack) has no fixed release. It appears
+# only because Cargo.lock records sqlx's optional `mysql` backend; this service
+# builds sqlx with `postgres` only, so the crate is never compiled or linked.
+# Re-check when sqlx ships a fixed rsa; remove this ignore then.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]

@@ -26,7 +26,7 @@ impl auth_service_server::AuthService for AuthServiceImpl {
                 // clone values for logging without moving `t` before we build response
                 let project_id_val = t.project_id.clone();
                 let user_id_val = t.user_id.clone();
-                info!(token = ?token, project_id = ?project_id_val, user_id = ?user_id_val, "token verified");
+                info!(token = %crate::redact::token_hint(&token), project_id = ?project_id_val, user_id = ?user_id_val, "token verified");
 
                 let user_token = UserToken {
                     project_id: t.project_id,
@@ -42,7 +42,7 @@ impl auth_service_server::AuthService for AuthServiceImpl {
                 Ok(Response::new(resp))
             }
             Ok(None) => {
-                info!(token = ?token, "token not found or invalid");
+                info!(token = %crate::redact::token_hint(&token), "token not found or invalid");
                 Ok(Response::new(VerifyUserTokenResponse {
                     found: false,
                     user_token: None,
@@ -59,12 +59,26 @@ impl auth_service_server::AuthService for AuthServiceImpl {
 pub async fn start_grpc_server(
     addr: SocketAddr,
     redis: Arc<redis::aio::ConnectionManager>,
+    secret: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let svc = auth_service_server::AuthServiceServer::new(AuthServiceImpl { redis });
+    let svc = AuthServiceImpl { redis };
+
+    // Callers must present the shared service secret; this port is internal
+    // but identity issuance must not rely on network position alone.
+    let svc = auth_service_server::AuthServiceServer::with_interceptor(svc, move |request| {
+        crate::grpc_auth::authorize(&secret, request)
+    });
+
+    // Health checks stay unauthenticated so container probes keep working.
+    let (health_reporter, health_service) = tonic_health::server::health_reporter();
+    health_reporter
+        .set_serving::<auth_service_server::AuthServiceServer<AuthServiceImpl>>()
+        .await;
 
     info!(addr = ?addr, "starting gRPC server");
 
     tonic::transport::Server::builder()
+        .add_service(health_service)
         .add_service(svc)
         .serve(addr)
         .await?;

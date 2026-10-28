@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dotenv = "0.15.0"
+dotenvy = "0.15.0"
 nanoid = "0.4.0"
 rand = "0.8.5"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -16,12 +16,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 redis = { version = "1.0.0", features = ["aio", "tokio-comp", "connection-manager"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tower-http = { version = "0.6", features = ["cors"] }
-tonic = { version = "0.9", features = ["transport"] }
-prost = "0.11"
+tower-http = { version = "0.6", features = ["cors", "set-header"] }
+tonic = { version = "0.13", features = ["transport"] }
+tonic-health = "0.13"
+prost = "0.13"
 
 [build-dependencies]
-tonic-build = "0.9"
+tonic-build = "0.13"
 
 [package.metadata.sqlx]
 offline = true

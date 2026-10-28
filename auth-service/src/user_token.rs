@@ -52,7 +52,7 @@ pub async fn store_user_token(
 
     let _: () = con.set_ex(key, json_value, TOKEN_TTL_SECS).await?;
 
-    info!(token = ?key, project_id = %project_id, user_id = %user_id, "stored token in redis");
+    info!(token = %crate::redact::token_hint(key), project_id = %project_id, user_id = %user_id, "stored token in redis");
 
     Ok(token)
 }
@@ -63,7 +63,7 @@ pub async fn verify_user_token(
     token: &str,
 ) -> Result<Option<UserToken>, Box<dyn std::error::Error>> {
     if !token.starts_with("pxtok_") {
-        warn!(token = ?token, "invalid token format");
+        warn!(token = %crate::redact::token_hint(token), "invalid token format");
         return Ok(None);
     }
 
@@ -74,7 +74,7 @@ pub async fn verify_user_token(
     let json = match data {
         Some(v) => v,
         None => {
-            debug!(token = ?token, "token not found in redis");
+            debug!(token = %crate::redact::token_hint(token), "token not found in redis");
             return Ok(None);
         }
     };
@@ -82,7 +82,7 @@ pub async fn verify_user_token(
     let parsed: UserToken = match serde_json::from_str(&json) {
         Ok(v) => v,
         Err(e) => {
-            debug!(%e, token = ?token, "failed to deserialize token payload");
+            debug!(%e, token = %crate::redact::token_hint(token), "failed to deserialize token payload");
             return Ok(None);
         }
     };
@@ -93,11 +93,11 @@ pub async fn verify_user_token(
         .as_secs();
 
     if now > parsed.expires_at {
-        debug!(token = ?token, "token expired");
+        debug!(token = %crate::redact::token_hint(token), "token expired");
         return Ok(None);
     }
 
-    info!(token = ?token, project_id = %parsed.project_id, user_id = %parsed.user_id, "token valid");
+    info!(token = %crate::redact::token_hint(token), project_id = %parsed.project_id, user_id = %parsed.user_id, "token valid");
 
     Ok(Some(parsed))
 }
