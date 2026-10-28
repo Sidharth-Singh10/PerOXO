@@ -1,4 +1,4 @@
-use crate::{auth::AuthenticatedUser, GetSertConversationRequest, state::PerOxoState};
+use crate::{GetSertConversationRequest, auth::AuthenticatedUser, state::PerOxoState};
 use axum::{
     Json,
     extract::{Query, State},
@@ -43,6 +43,38 @@ pub async fn getsert_conversation_id(
         );
     }
 
+    // Only a participant may ask for a conversation id. Without this, any
+    // tenant member could enumerate the conversation ids of any other pair in
+    // the project.
+    if auth.user_token.user_id != params.user_id_1 && auth.user_token.user_id != params.user_id_2 {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ConversationResponse {
+                success: false,
+                error_message: "caller is not a participant of this conversation".to_string(),
+                conversation_id: String::new(),
+                created_new: false,
+            }),
+        );
+    }
+
+    // Bound the identifiers before they reach the database.
+    if params.user_id_1.is_empty()
+        || params.user_id_2.is_empty()
+        || params.user_id_1.len() > 128
+        || params.user_id_2.len() > 128
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ConversationResponse {
+                success: false,
+                error_message: "invalid user id".to_string(),
+                conversation_id: String::new(),
+                created_new: false,
+            }),
+        );
+    }
+
     // move this to chat_service
     let (u1, u2) = if params.user_id_1 < params.user_id_2 {
         (params.user_id_1, params.user_id_2)
@@ -55,16 +87,18 @@ pub async fn getsert_conversation_id(
         project_id: params.project_id,
         user_id_1: u1,
         user_id_2: u2,
+        caller_user_id: auth.user_token.user_id.clone(),
     });
 
     let grpc_response = match client.get_sert_conversation(request).await {
         Ok(resp) => resp.into_inner(),
         Err(e) => {
+            tracing::error!("get_sert_conversation gRPC call failed: {e}");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ConversationResponse {
                     success: false,
-                    error_message: format!("gRPC error: {}", e),
+                    error_message: "Internal error".to_string(),
                     conversation_id: "".to_string(),
                     created_new: false,
                 }),

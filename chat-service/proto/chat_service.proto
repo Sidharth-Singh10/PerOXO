@@ -35,13 +35,18 @@ service ChatService {
 } 
 
 message WriteDMRequest {
-  string project_id      = 1;
-  string conversation_id = 2;
-  string sender_id       = 3;
-  string receiver_id     = 4;
-  string message         = 5;
-  string message_id      = 6;
-  int64  timestamp       = 7;
+  // Field 2 was a client-supplied conversation_id. The server now resolves the
+  // conversation from (project_id, sender_id, receiver_id), so a caller can no
+  // longer write into somebody else's thread.
+  reserved 2;
+  reserved "conversation_id";
+
+  string project_id  = 1;
+  string sender_id   = 3;
+  string receiver_id = 4;
+  string message     = 5;
+  string message_id  = 6;
+  int64  timestamp   = 7;
 }
 
 message WriteDMResponse {
@@ -72,6 +77,8 @@ message UserConversation {
 message FetchConversationHistoryRequest {
   string project_id      = 1;
   string conversation_id = 2;
+  // Authenticated caller; the server rejects reads by non-participants.
+  string caller_user_id  = 3;
 }
 
 message FetchConversationHistoryResponse {
@@ -92,6 +99,8 @@ message GetPaginatedMessagesRequest {
   string project_id        = 1;
   string conversation_id   = 2;
   string cursor_message_id = 3;
+  // Authenticated caller; the server rejects reads by non-participants.
+  string caller_user_id    = 4;
 }
 
 message GetPaginatedMessagesResponse {
@@ -149,6 +158,8 @@ message SyncMessagesRequest {
   string project_id      = 1;
   string conversation_id = 2;
   string last_message_id = 3;
+  // Authenticated caller; the server rejects reads by non-participants.
+  string caller_user_id  = 4;
 }
 
 message SyncMessagesResponse {
@@ -161,6 +172,8 @@ message GetSertConversationRequest {
   string project_id = 1;
   string user_id_1  = 2;
   string user_id_2  = 3;
+  // Authenticated caller; must be one of the two participants.
+  string caller_user_id = 4;
 }
 
 message GetSertConversationResponse {

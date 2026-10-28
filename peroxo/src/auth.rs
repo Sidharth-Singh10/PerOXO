@@ -5,11 +5,7 @@ use axum::{
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{
-    UserToken, VerifyUserTokenRequest,
-    state::PerOxoState,
-    tenant::TenantUserId,
-};
+use crate::{UserToken, VerifyUserTokenRequest, state::PerOxoState, tenant::TenantUserId};
 
 pub struct AuthenticatedUser {
     pub user_token: UserToken,
@@ -37,9 +33,12 @@ impl FromRequestParts<Arc<PerOxoState>> for AuthenticatedUser {
 
 fn extract_token(parts: &Parts) -> Result<String, (StatusCode, String)> {
     if let Some(header) = parts.headers.get("authorization") {
-        let value = header
-            .to_str()
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid authorization header".into()))?;
+        let value = header.to_str().map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Invalid authorization header".into(),
+            )
+        })?;
         if let Some(token) = value.strip_prefix("Bearer ") {
             return Ok(token.to_string());
         }
@@ -65,11 +64,17 @@ async fn verify_token(
     // this timeout guarantees we never wait indefinitely either way.)
     let resp = tokio::time::timeout(Duration::from_secs(5), client.verify_user_token(req))
         .await
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Auth service timeout".to_string()))?
-        .map_err(|e| {
+        .map_err(|_| {
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Auth service error: {e}"),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Auth service timeout".to_string(),
+            )
+        })?
+        .map_err(|e| {
+            tracing::error!("auth-service VerifyUserToken failed: {e}");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Authentication service unavailable".to_string(),
             )
         })?
         .into_inner();

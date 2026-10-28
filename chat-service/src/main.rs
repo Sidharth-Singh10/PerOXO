@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tonic::transport::Server;
 use tonic_health::server::health_reporter;
 mod chat_services;
+mod grpc_auth;
 mod queries;
 use crate::chat_service::chat_service_server::ChatServiceServer;
 use crate::migrations::migration::run_database_migrations;
@@ -70,7 +71,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let queries = prepare_queries(&session_arc).await?;
 
     let chat_service = ChatServiceImpl::new(Arc::clone(&session_arc), Arc::clone(&queries));
-    let service = ChatServiceServer::new(chat_service);
+
+    // Every business RPC must present the shared service secret. Health checks
+    // stay unauthenticated so the container probe keeps working.
+    let grpc_secret = grpc_auth::require_shared_secret("chat-service")?;
+    let service = ChatServiceServer::with_interceptor(chat_service, move |request| {
+        grpc_auth::authorize(&grpc_secret, request)
+    });
     let addr = grpc_addr.parse()?;
 
     let (health_reporter, health_service) = health_reporter();

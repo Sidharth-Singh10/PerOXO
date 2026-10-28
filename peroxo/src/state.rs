@@ -5,10 +5,9 @@ use crate::actors::{
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::grpc_auth::AuthClient;
 #[cfg(feature = "persistence")]
-use crate::chat_service_client::ChatServiceClient;
-#[cfg(feature = "persistence")]
-use tonic::transport::Channel;
+use crate::grpc_auth::ChatClient;
 
 #[cfg(feature = "mongo_db")]
 use crate::mongo_db::config::MongoDbConfig;
@@ -19,27 +18,43 @@ use crate::actors::persistance_actor::PersistenceService;
 pub struct PerOxoState {
     pub connection_manager: Arc<ConnectionManager>,
     pub router_sender: mpsc::Sender<RouterMessage>,
-    pub auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
+    pub auth_client: AuthClient,
     /// Broadcast that signals active WebSocket sessions to close during
     /// graceful shutdown.
     pub drain_tx: tokio::sync::broadcast::Sender<()>,
     #[cfg(feature = "persistence")]
-    pub chat_client: ChatServiceClient<Channel>,
+    pub chat_client: ChatClient,
 }
 
 impl PerOxoState {
     async fn new(
-        #[cfg(feature = "persistence")] chat_service_client: ChatServiceClient<Channel>,
-        #[cfg(any(feature = "mongo_db", feature = "persistence"))]
-        persistence: Arc<PersistenceService>,
-        auth_client: crate::auth_service_client::AuthServiceClient<Channel>,
+        #[cfg(feature = "persistence")] chat_service_client: ChatClient,
+        #[cfg(any(feature = "mongo_db", feature = "persistence"))] persistence: Arc<
+            PersistenceService,
+        >,
+        auth_client: AuthClient,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (router, router_sender) = MessageRouter::new(
             #[cfg(any(feature = "mongo_db", feature = "persistence"))]
             persistence,
         );
 
-        tokio::spawn(router.run());
+        // Supervisor: if the router task panics, the in-process user registry
+        // (the only authoritative presence/routing state) is unrecoverable.
+        // Log it, record a metric, and exit so the container restarts with a
+        // fresh instance — without this, a single panic silently kills all
+        // routing while sessions keep queueing into a dead mailbox.
+        tokio::spawn(async move {
+            if let Err(join_error) = tokio::spawn(router.run()).await {
+                if join_error.is_panic() {
+                    crate::metrics::Metrics::router_panicked();
+                    tracing::error!("MessageRouter panicked: {}", join_error);
+                } else {
+                    tracing::error!("MessageRouter task cancelled: {}", join_error);
+                }
+                std::process::exit(1);
+            }
+        });
 
         let (drain_tx, _) = tokio::sync::broadcast::channel(1);
         let connection_manager = Arc::new(ConnectionManager::new(

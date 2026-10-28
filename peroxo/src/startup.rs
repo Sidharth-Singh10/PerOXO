@@ -17,7 +17,9 @@ pub async fn build_state(config: &Config) -> Result<PerOxoState, Box<dyn std::er
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
         tracing::info!("Ctrl+C received");
     };
 
@@ -46,6 +48,16 @@ pub async fn run(
     let app = peroxo_route(state.clone());
     let listener = tokio::net::TcpListener::bind(&config.service_addr).await?;
     tracing::info!("Per-OXO service listening on {}", config.service_addr);
+
+    // Metrics are served on a separate, internal listener so that the public
+    // chat port exposes only `/ws` and `/conversations`.
+    let metrics_listener = tokio::net::TcpListener::bind(&config.metrics_addr).await?;
+    tracing::info!("Per-OXO metrics listening on {}", config.metrics_addr);
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(metrics_listener, crate::metrics_route()).await {
+            tracing::error!("metrics server error: {e}");
+        }
+    });
 
     let drain_tx = state.drain_tx.clone();
 

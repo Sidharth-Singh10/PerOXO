@@ -1,4 +1,4 @@
-use crate::actors::{message_router::RouterMessage, user_session::handlers};
+use crate::actors::{message_router::RouterMessage, user_session::handlers, uuid_util::NODE_ID};
 use crate::chat::ChatMessage;
 use crate::metrics::Metrics;
 use crate::tenant::TenantUserId;
@@ -182,6 +182,10 @@ impl UserSession {
         let router_sender_clone = router_sender.clone();
 
         let mut recv_task = tokio::spawn(async move {
+            // One bucket per connection: a client that floods is cut off
+            // without affecting other sessions sharing the process.
+            let mut bucket = crate::ratelimit::TokenBucket::new();
+
             loop {
                 let frame = tokio::time::timeout(WS_READ_TIMEOUT, ws_receiver.next()).await;
 
@@ -203,15 +207,38 @@ impl UserSession {
                     Ok(Some(Ok(_))) => continue, // Ping/Pong/Binary
                 };
 
+                if !bucket.try_consume() {
+                    Metrics::websocket_message_dropped("rate_limited");
+                    debug!(
+                        "Rate limit exceeded for {}, closing session",
+                        tenant_user_id_clone
+                    );
+                    break;
+                }
+
                 match serde_json::from_str::<ChatMessage>(&text) {
                     Ok(ChatMessage::SendDirectMessage {
-                        conversation_id,
+                        conversation_id: _,
                         to,
                         content,
                         client_message_id,
                     }) => {
+                        if let Err(reason) =
+                            crate::validate::validate_direct_message(&to.user_id, &content)
+                        {
+                            Metrics::websocket_message_dropped("invalid_input");
+                            let _ = ack_sender
+                                .send(ChatMessage::MessageAck {
+                                    client_message_id,
+                                    message_id: uuid::Uuid::now_v1(&NODE_ID),
+                                    timestamp: chrono::Utc::now().timestamp_millis(),
+                                    status: crate::chat::MessageStatus::Failed(reason.to_string()),
+                                })
+                                .await;
+                            continue;
+                        }
+
                         if let Err(e) = handlers::handle_direct_message(
-                            conversation_id,
                             tenant_user_id_clone.clone(),
                             to,
                             content,
@@ -230,13 +257,28 @@ impl UserSession {
                         message_id,
                         conversation_id,
                     }) => {
+                        // Reject malformed ids before they reach the database.
+                        if crate::validate::validate_conversation_id(&conversation_id).is_err() {
+                            Metrics::websocket_message_dropped("invalid_input");
+                            let _ = ack_sender
+                                .send(ChatMessage::ChatHistoryResponse {
+                                    messages: Vec::new(),
+                                    has_more: false,
+                                    next_cursor: None,
+                                })
+                                .await;
+                            continue;
+                        }
+
                         // Tenant isolation: never trust the client-supplied
                         // project_id; always query within the authenticated
                         // tenant.
                         let project_id = tenant_user_id_clone.project_id.clone();
+                        let caller_user_id = tenant_user_id_clone.user_id.clone();
                         let (respond_to, response) = oneshot::channel();
                         let router_msg = RouterMessage::GetPaginatedMessages {
                             project_id,
+                            caller_user_id,
                             message_id,
                             conversation_id,
                             respond_to,
@@ -285,6 +327,21 @@ impl UserSession {
                         content,
                         message_id,
                     }) => {
+                        if let Err(reason) =
+                            crate::validate::validate_room_message(&room_id, &content)
+                        {
+                            Metrics::websocket_message_dropped("invalid_input");
+                            let _ = ack_sender
+                                .send(ChatMessage::MessageAck {
+                                    client_message_id: message_id,
+                                    message_id: uuid::Uuid::now_v1(&NODE_ID),
+                                    timestamp: chrono::Utc::now().timestamp_millis(),
+                                    status: crate::chat::MessageStatus::Failed(reason.to_string()),
+                                })
+                                .await;
+                            continue;
+                        }
+
                         if let Err(e) = handlers::handle_room_message(
                             tenant_user_id_clone.clone(),
                             room_id,
@@ -300,6 +357,11 @@ impl UserSession {
                         }
                     }
                     Ok(ChatMessage::JoinRoom { room_id }) => {
+                        if crate::validate::validate_id(&room_id).is_err() {
+                            Metrics::websocket_message_dropped("invalid_input");
+                            continue;
+                        }
+
                         let (respond_to, _) = oneshot::channel();
                         let router_msg = RouterMessage::JoinRoom {
                             tenant_user_id: tenant_user_id_clone.clone(),
@@ -319,13 +381,25 @@ impl UserSession {
                         conversation_id,
                         message_id,
                     }) => {
+                        if crate::validate::validate_conversation_id(&conversation_id).is_err() {
+                            Metrics::websocket_message_dropped("invalid_input");
+                            let _ = ack_sender
+                                .send(ChatMessage::SyncMessagesResponse {
+                                    messages: Vec::new(),
+                                })
+                                .await;
+                            continue;
+                        }
+
                         // Tenant isolation: never trust the client-supplied
                         // project_id; always query within the authenticated
                         // tenant.
                         let project_id = tenant_user_id_clone.project_id.clone();
+                        let caller_user_id = tenant_user_id_clone.user_id.clone();
                         let (respond_to, response) = oneshot::channel();
                         let router_msg = RouterMessage::SyncMessages {
                             project_id,
+                            caller_user_id,
                             conversation_id,
                             message_id,
                             respond_to,

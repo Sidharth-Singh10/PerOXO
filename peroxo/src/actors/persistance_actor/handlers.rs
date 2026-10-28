@@ -16,7 +16,6 @@ impl PersistenceService {
     #[allow(unreachable_code, unused_variables)]
     pub async fn handle_persist_direct_message(
         &self,
-        conversation_id: String,
         tenant_sender_id: TenantUserId,
         tenant_receiver_id: TenantUserId,
         message_content: String,
@@ -79,7 +78,6 @@ impl PersistenceService {
             let start = std::time::Instant::now();
             let request = WriteDmRequest {
                 project_id: tenant_sender_id.project_id.clone(),
-                conversation_id: conversation_id.clone(),
                 sender_id: tenant_sender_id.user_id.clone(),
                 receiver_id: tenant_receiver_id.user_id.clone(),
                 message: message_content,
@@ -206,6 +204,7 @@ impl PersistenceService {
     pub async fn handle_get_paginated_messages(
         &self,
         project_id: String,
+        caller_user_id: String,
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
     ) -> Result<PaginatedMessagesResponse, String> {
@@ -218,6 +217,11 @@ impl PersistenceService {
 
         #[cfg(feature = "mongo_db")]
         {
+            // The legacy Mongo read path predates the membership table, so it
+            // checks participation from the message rows themselves.
+            self.assert_mongo_participant(&conversation_id, &caller_user_id)
+                .await?;
+
             return self
                 .fetch_paginated_messages_from_mongo(conversation_id, message_id)
                 .await;
@@ -236,6 +240,7 @@ impl PersistenceService {
                 project_id,
                 conversation_id,
                 cursor_message_id,
+                caller_user_id,
             });
 
             match tokio::time::timeout(GRPC_TIMEOUT, client.get_paginated_messages(request)).await {
@@ -287,6 +292,45 @@ impl PersistenceService {
                     Err("gRPC call timed out".to_string())
                 }
             }
+        }
+    }
+
+    #[cfg(feature = "mongo_db")]
+    async fn assert_mongo_participant(
+        &self,
+        conversation_id: &str,
+        caller_user_id: &str,
+    ) -> Result<(), String> {
+        use crate::mongo_db::models::DirectMessage as MongoDirectMessage;
+        use mongodb::bson::doc;
+
+        let Ok(caller_id) = caller_user_id.parse::<i32>() else {
+            return Err("Not a participant of this conversation".to_string());
+        };
+
+        let db = self
+            .mango_db_client
+            .database(&self.mongo_config.database_name);
+        let messages_col = db.collection::<MongoDirectMessage>("direct_messages");
+
+        let found = messages_col
+            .find_one(doc! {
+                "_id.conversation_id": conversation_id,
+                "$or": [
+                    { "sender_id": caller_id },
+                    { "recipient_id": caller_id },
+                ],
+            })
+            .await
+            .map_err(|e| {
+                error!("MongoDB membership lookup failed: {}", e);
+                "Internal error".to_string()
+            })?;
+
+        if found.is_some() {
+            Ok(())
+        } else {
+            Err("Not a participant of this conversation".to_string())
         }
     }
 
@@ -349,6 +393,78 @@ impl PersistenceService {
             next_cursor,
             has_more,
         })
+    }
+
+    #[cfg(feature = "persistence")]
+    pub async fn handle_get_paginated_room_messages(
+        &self,
+        project_id: String,
+        message_id: Option<uuid::Uuid>,
+        room_id: String,
+    ) -> Result<PaginatedMessagesResponse, String> {
+        let _permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| format!("persistence queue closed: {}", e))?;
+
+        use crate::GetPaginatedRoomMessagesRequest;
+        use tonic::Request;
+
+        let mut client = self.chat_service_client.clone();
+        let cursor_message_id = message_id.map(|id| id.to_string()).unwrap_or_default();
+
+        let request = Request::new(GetPaginatedRoomMessagesRequest {
+            project_id,
+            room_id,
+            cursor_message_id,
+        });
+
+        match tokio::time::timeout(GRPC_TIMEOUT, client.get_paginated_room_messages(request)).await
+        {
+            Ok(Ok(response)) => {
+                let response = response.into_inner();
+                if response.success {
+                    let messages: Vec<ResponseDirectMessage> = response
+                        .messages
+                        .into_iter()
+                        .map(|msg| ResponseDirectMessage {
+                            conversation_id: msg.room_id,
+                            message_id: uuid::Uuid::parse_str(&msg.message_id)
+                                .unwrap_or_else(|_| uuid::Uuid::new_v4()),
+                            sender_id: msg.sender_id,
+                            recipient_id: String::new(),
+                            message_text: msg.content,
+                            created_at: msg.created_at,
+                        })
+                        .collect();
+
+                    let next_cursor = if response.next_cursor.is_empty() {
+                        None
+                    } else {
+                        Some(response.next_cursor)
+                    };
+
+                    Ok(PaginatedMessagesResponse {
+                        has_more: next_cursor.is_some(),
+                        messages,
+                        next_cursor,
+                    })
+                } else {
+                    error!("Failed to fetch room messages: {}", response.error_message);
+                    Err(response.error_message)
+                }
+            }
+            Ok(Err(e)) => {
+                error!("GetPaginatedRoomMessages gRPC call failed: {}", e);
+                Err("Internal error".to_string())
+            }
+            Err(_) => {
+                error!("GetPaginatedRoomMessages gRPC call timed out");
+                Err("Internal error".to_string())
+            }
+        }
     }
 
     #[cfg(feature = "persistence")]
@@ -418,10 +534,7 @@ impl PersistenceService {
             let mut req = Request::new(request.clone());
             req.set_timeout(GRPC_TIMEOUT);
 
-            match client
-                .write_room_message(req)
-                .await
-            {
+            match client.write_room_message(req).await {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     attempts += 1;
@@ -451,6 +564,7 @@ impl PersistenceService {
     pub async fn handle_sync_messages(
         &self,
         project_id: String,
+        caller_user_id: String,
         conversation_id: String,
         message_id: uuid::Uuid,
     ) -> Result<Vec<crate::chat::ResponseDirectMessage>, String> {
@@ -471,6 +585,7 @@ impl PersistenceService {
             project_id,
             conversation_id: conversation_id.clone(),
             last_message_id: message_id.to_string(),
+            caller_user_id,
         });
 
         match tokio::time::timeout(GRPC_TIMEOUT, client.sync_messages(request)).await {

@@ -36,7 +36,9 @@ fn generated_node_id() -> [u8; 6] {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    std::env::var("HOSTNAME").unwrap_or_default().hash(&mut hasher);
+    std::env::var("HOSTNAME")
+        .unwrap_or_default()
+        .hash(&mut hasher);
     std::process::id().hash(&mut hasher);
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

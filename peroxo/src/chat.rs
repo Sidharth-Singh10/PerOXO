@@ -7,6 +7,9 @@ use crate::tenant::TenantUserId;
 pub enum ChatMessage {
     // client to server (naming from client POV, can be improved)
     SendDirectMessage {
+        /// Accepted for backwards compatibility and ignored. The server
+        /// resolves the conversation from the authenticated sender and `to`,
+        /// so a client cannot address a thread it is not part of.
         conversation_id: String,
         to: TenantUserId,
         content: String,

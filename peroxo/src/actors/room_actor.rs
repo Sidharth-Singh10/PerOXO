@@ -262,9 +262,17 @@ impl RoomActor {
             let room_id = self.room_id.clone();
 
             tokio::spawn(async move {
+                #[cfg(feature = "persistence")]
                 let result = persistence
-                    .handle_get_paginated_messages(project_id, message_id, room_id)
+                    .handle_get_paginated_room_messages(project_id, message_id, room_id)
                     .await;
+
+                #[cfg(not(feature = "persistence"))]
+                let result: Result<PaginatedMessagesResponse, String> = {
+                    let _ = (&persistence, project_id, message_id, room_id);
+                    Err("room history requires the persistence feature".to_string())
+                };
+
                 let _ = respond_to.send(result);
             });
         }

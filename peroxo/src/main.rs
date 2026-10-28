@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     let config = Config::from_env().expect("invalid configuration");
 

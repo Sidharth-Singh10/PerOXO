@@ -10,7 +10,6 @@ use uuid::Uuid;
 const PERSIST_ACK_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub async fn handle_direct_message(
-    conversation_id: String,
     user_token: TenantUserId,
     to: TenantUserId,
     content: String,
@@ -43,7 +42,6 @@ pub async fn handle_direct_message(
     let (respond_to, response) = oneshot::channel();
 
     let router_msg = RouterMessage::SendDirectMessage {
-        conversation_id,
         from: user_token.clone(),
         to,
         content,
@@ -75,7 +73,10 @@ pub async fn handle_direct_message(
                 debug!("Persistence response channel closed before ack");
             }
             Err(_) => {
-                error!("Persistence ack timed out for message {}", server_message_id);
+                error!(
+                    "Persistence ack timed out for message {}",
+                    server_message_id
+                );
                 let ack_message = ChatMessage::MessageAck {
                     client_message_id,
                     message_id: server_message_id,
@@ -139,7 +140,10 @@ pub async fn handle_room_message(
                 debug!("Room persistence response channel closed before ack");
             }
             Err(_) => {
-                error!("Room persistence ack timed out for message {}", server_message_id);
+                error!(
+                    "Room persistence ack timed out for message {}",
+                    server_message_id
+                );
                 let ack_msg = ChatMessage::MessageAck {
                     client_message_id,
                     message_id: server_message_id,

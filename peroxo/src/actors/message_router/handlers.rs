@@ -98,7 +98,6 @@ impl MessageRouter {
 
     pub async fn handle_direct_message(
         &mut self,
-        conversation_id: String,
         from: TenantUserId,
         to: TenantUserId,
         content: String,
@@ -162,7 +161,6 @@ impl MessageRouter {
                     tokio::spawn(async move {
                         let result = persistence
                             .handle_persist_direct_message(
-                                conversation_id,
                                 from_clone,
                                 to_clone,
                                 content_clone,
@@ -198,6 +196,7 @@ impl MessageRouter {
     pub async fn handle_get_paginated_chat_history(
         &self,
         project_id: String,
+        caller_user_id: String,
         message_id: Option<uuid::Uuid>,
         conversation_id: String,
         respond_to: oneshot::Sender<Result<PaginatedMessagesResponse, String>>,
@@ -207,7 +206,12 @@ impl MessageRouter {
 
             tokio::spawn(async move {
                 let result = persistence
-                    .handle_get_paginated_messages(project_id, message_id, conversation_id)
+                    .handle_get_paginated_messages(
+                        project_id,
+                        caller_user_id,
+                        message_id,
+                        conversation_id,
+                    )
                     .await;
                 let _ = respond_to.send(result);
             });
@@ -225,10 +229,12 @@ impl MessageRouter {
 
         // If the previous actor for this room died (receiver dropped) before
         // the periodic sweep removed it, drop the stale handle and recreate.
-        if let Some(room_sender) = self.rooms.get(&room_key) {
-            if room_sender.is_closed() {
-                self.rooms.remove(&room_key);
-            }
+        if self
+            .rooms
+            .get(&room_key)
+            .is_some_and(|room_sender| room_sender.is_closed())
+        {
+            self.rooms.remove(&room_key);
         }
 
         let room_sender = if let Some(sender) = self.rooms.get(&room_key) {
@@ -365,6 +371,7 @@ impl MessageRouter {
     pub async fn handle_sync_messages(
         &self,
         project_id: String,
+        caller_user_id: String,
         conversation_id: String,
         message_id: uuid::Uuid,
         respond_to: oneshot::Sender<Result<Vec<crate::chat::ResponseDirectMessage>, String>>,
@@ -374,7 +381,7 @@ impl MessageRouter {
 
             tokio::spawn(async move {
                 let result = persistence
-                    .handle_sync_messages(project_id, conversation_id, message_id)
+                    .handle_sync_messages(project_id, caller_user_id, conversation_id, message_id)
                     .await;
                 let _ = respond_to.send(result);
             });

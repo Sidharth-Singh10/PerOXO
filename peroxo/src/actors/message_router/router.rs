@@ -63,7 +63,6 @@ impl MessageRouter {
                     self.handle_unregister_user(tenant_user_id).await;
                 }
                 RouterMessage::SendDirectMessage {
-                    conversation_id,
                     from,
                     to,
                     content,
@@ -72,7 +71,6 @@ impl MessageRouter {
                     respond_to,
                 } => {
                     self.handle_direct_message(
-                        conversation_id,
                         from,
                         to,
                         content,
@@ -88,12 +86,14 @@ impl MessageRouter {
                 #[cfg(any(feature = "mongo_db", feature = "persistence"))]
                 RouterMessage::GetPaginatedMessages {
                     project_id,
+                    caller_user_id,
                     message_id,
                     conversation_id,
                     respond_to,
                 } => {
                     self.handle_get_paginated_chat_history(
                         project_id,
+                        caller_user_id,
                         message_id,
                         conversation_id,
                         respond_to,
@@ -134,12 +134,19 @@ impl MessageRouter {
                 #[cfg(feature = "persistence")]
                 RouterMessage::SyncMessages {
                     project_id,
+                    caller_user_id,
                     conversation_id,
                     message_id,
                     respond_to,
                 } => {
-                    self.handle_sync_messages(project_id, conversation_id, message_id, respond_to)
-                        .await;
+                    self.handle_sync_messages(
+                        project_id,
+                        caller_user_id,
+                        conversation_id,
+                        message_id,
+                        respond_to,
+                    )
+                    .await;
                 }
                         },
                         None => break,

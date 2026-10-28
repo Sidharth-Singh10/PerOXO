@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use scylla::{
     client::session::Session,
-    statement::{
-        batch::{Batch, BatchType},
-    },
+    statement::batch::{Batch, BatchType},
     value::{CqlTimestamp, CqlTimeuuid},
 };
 use uuid::Uuid;
@@ -361,6 +359,14 @@ pub async fn getsert_conversation_id(
 
         if let Some(row_result) = typed_rows.next() {
             let (existing_conv_id,) = row_result?;
+            insert_conversation_members(
+                session,
+                project_id,
+                &existing_conv_id,
+                user_id_1,
+                user_id_2,
+            )
+            .await?;
             return Ok((existing_conv_id, false));
         }
     }
@@ -379,7 +385,86 @@ pub async fn getsert_conversation_id(
         )
         .await?;
 
+    insert_conversation_members(
+        session,
+        project_id,
+        &new_conversation_id,
+        user_id_1,
+        user_id_2,
+    )
+    .await?;
+
     Ok((new_conversation_id, true))
+}
+
+/// Records both participants for a conversation.
+///
+/// Writing these rows is what makes the read path's authorization check
+/// possible: without them there is no way to answer "does this caller belong
+/// to this conversation" from a conversation id alone.
+async fn insert_conversation_members(
+    session: &Session,
+    project_id: &str,
+    conversation_id: &str,
+    user_a: &str,
+    user_b: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut batch = Batch::new(BatchType::Unlogged);
+
+    batch.append_statement(
+        "INSERT INTO affinity.conversation_members (project_id, conversation_id, user_id) \
+         VALUES (?, ?, ?)",
+    );
+    batch.append_statement(
+        "INSERT INTO affinity.conversation_members (project_id, conversation_id, user_id) \
+         VALUES (?, ?, ?)",
+    );
+
+    let values = (
+        (project_id, conversation_id, user_a),
+        (project_id, conversation_id, user_b),
+    );
+
+    session.batch(&batch, values).await?;
+
+    Ok(())
+}
+
+/// Returns true when `user_id` is one of the recorded participants.
+///
+/// Missing membership rows are treated as "not a participant": a conversation
+/// that predates the index must be backfilled
+/// (`BACKFILL_CONVERSATION_MEMBERS=1`) rather than silently readable by anyone
+/// who knows its id.
+pub async fn is_conversation_participant(
+    session: &Session,
+    project_id: &str,
+    conversation_id: &str,
+    user_id: &str,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    let result = session
+        .query_unpaged(
+            "SELECT user_id FROM affinity.conversation_members \
+             WHERE project_id = ? AND conversation_id = ?",
+            (project_id, conversation_id),
+        )
+        .await?;
+
+    let rows_result = result.into_rows_result()?;
+    let rows = rows_result.rows::<(String,)>()?;
+
+    let mut members = Vec::new();
+    for row in rows {
+        members.push(row?.0);
+    }
+
+    Ok(membership_contains(&members, user_id))
+}
+
+/// Pure helper, split out so the authorization rule is unit-testable without a
+/// database.
+pub fn membership_contains(members: &[String], user_id: &str) -> bool {
+    members.iter().any(|member| member == user_id)
 }
 
 /// Derives a conversation id from the (already sorted) user pair instead of
@@ -390,6 +475,37 @@ pub async fn getsert_conversation_id(
 fn deterministic_conversation_id(project_id: &str, user_id_1: &str, user_id_2: &str) -> String {
     let key = format!("{}|{}|{}", project_id, user_id_1, user_id_2);
     Uuid::new_v5(&Uuid::NAMESPACE_OID, key.as_bytes()).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conversation_id_is_deterministic() {
+        let first = deterministic_conversation_id("proj", "alice", "bob");
+        let second = deterministic_conversation_id("proj", "alice", "bob");
+        assert_eq!(first, second);
+        assert!(Uuid::parse_str(&first).is_ok());
+    }
+
+    #[test]
+    fn conversation_id_is_scoped_to_project() {
+        let a = deterministic_conversation_id("project-a", "alice", "bob");
+        let b = deterministic_conversation_id("project-b", "alice", "bob");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn membership_requires_an_exact_match() {
+        let members = vec!["alice".to_string(), "bob".to_string()];
+
+        assert!(membership_contains(&members, "alice"));
+        assert!(membership_contains(&members, "bob"));
+        assert!(!membership_contains(&members, "carol"));
+        assert!(!membership_contains(&members, ""));
+        assert!(!membership_contains(&[], "alice"));
+    }
 }
 
 // pub fn create_dm(

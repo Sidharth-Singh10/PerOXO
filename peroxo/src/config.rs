@@ -5,6 +5,7 @@ pub struct Config {
     pub chat_service_addr: String,
     pub auth_service_addr: String,
     pub service_addr: String,
+    pub metrics_addr: String,
     pub rust_log: String,
 }
 
@@ -20,6 +21,8 @@ impl Config {
             chat_service_addr: require_env("CHAT_SERVICE_ADDR")?,
             auth_service_addr: require_env("AUTH_SERVICE_ADDR")?,
             service_addr: require_env("PER_OXO_SERVICE_ADDR")?,
+            metrics_addr: env::var("PER_OXO_METRICS_ADDR")
+                .unwrap_or_else(|_| "127.0.0.1:9100".to_string()),
             rust_log: env::var("RUST_LOG").unwrap_or_else(|_| "debug".into()),
         })
     }

@@ -1,8 +1,10 @@
 use std::time::Duration;
+use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 
-use crate::chat_service_client::ChatServiceClient;
 use crate::auth_service_client::AuthServiceClient;
+use crate::chat_service_client::ChatServiceClient;
+use crate::grpc_auth::{self, AuthClient, ChatClient, ServiceAuth};
 
 const CONNECT_RETRIES: u32 = 5;
 const CONNECT_BACKOFF: Duration = Duration::from_secs(2);
@@ -47,16 +49,24 @@ async fn connect_with_retry(
 
 pub async fn connect_chat_service_client(
     chat_service_addr: String,
-) -> Result<ChatServiceClient<Channel>, Box<dyn std::error::Error>> {
+) -> Result<ChatClient, Box<dyn std::error::Error>> {
     let channel = connect_with_retry(&chat_service_addr, "chat-service").await?;
-    Ok(ChatServiceClient::new(channel))
+    let secret = grpc_auth::require_shared_secret("peroxo -> chat-service")?;
+    Ok(ChatServiceClient::new(InterceptedService::new(
+        channel,
+        ServiceAuth::new(&secret),
+    )))
 }
 
 pub async fn connect_auth_service_client(
     auth_service_addr: String,
-) -> Result<AuthServiceClient<Channel>, Box<dyn std::error::Error>> {
+) -> Result<AuthClient, Box<dyn std::error::Error>> {
     let channel = connect_with_retry(&auth_service_addr, "auth-service").await?;
-    Ok(AuthServiceClient::new(channel))
+    let secret = grpc_auth::require_shared_secret("peroxo -> auth-service")?;
+    Ok(AuthServiceClient::new(InterceptedService::new(
+        channel,
+        ServiceAuth::new(&secret),
+    )))
 }
 
 #[cfg(feature = "mongo_db")]

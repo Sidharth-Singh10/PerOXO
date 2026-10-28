@@ -28,8 +28,13 @@ impl ConnectionManager {
 
         let drain_rx = self.drain_tx.subscribe();
 
-        match UserSession::new(tenant_user_id.clone(), socket, self.router_sender.clone(), drain_rx)
-            .await
+        match UserSession::new(
+            tenant_user_id.clone(),
+            socket,
+            self.router_sender.clone(),
+            drain_rx,
+        )
+        .await
         {
             Ok(session) => {
                 info!("User session created for: {}", tenant_user_id);

@@ -1,8 +1,8 @@
 use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 
 use prometheus::{
-    CounterVec, Encoder, Gauge, HistogramVec, TextEncoder, histogram_opts, opts,
-    register_counter_vec, register_gauge, register_histogram_vec,
+    Counter, CounterVec, Encoder, Gauge, HistogramVec, TextEncoder, histogram_opts, opts,
+    register_counter, register_counter_vec, register_gauge, register_histogram_vec,
 };
 
 use std::sync::LazyLock;
@@ -34,6 +34,22 @@ static WEBSOCKET_CONNECTIONS_ACTIVE: LazyLock<Gauge> = LazyLock::new(|| {
     register_gauge!(opts!(
         "websocket_connections_active",
         "Active WS connections"
+    ))
+    .unwrap()
+});
+
+static ROUTER_PANICS_TOTAL: LazyLock<Counter> = LazyLock::new(|| {
+    register_counter!(opts!(
+        "router_panics_total",
+        "Number of MessageRouter task panics"
+    ))
+    .unwrap()
+});
+
+static ROUTER_MAILBOX_DEPTH: LazyLock<Gauge> = LazyLock::new(|| {
+    register_gauge!(opts!(
+        "router_mailbox_depth",
+        "Current number of pending messages in the router mailbox"
     ))
     .unwrap()
 });
@@ -149,6 +165,14 @@ impl Metrics {
     // --- WebSocket ---
     pub fn websocket_connected() {
         WEBSOCKET_CONNECTIONS_ACTIVE.inc();
+    }
+
+    pub fn router_panicked() {
+        ROUTER_PANICS_TOTAL.inc();
+    }
+
+    pub fn set_router_mailbox_depth(depth: usize) {
+        ROUTER_MAILBOX_DEPTH.set(depth as f64);
     }
 
     pub fn websocket_disconnected() {

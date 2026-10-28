@@ -17,6 +17,7 @@ use crate::chat_service::WriteRoomMessageResponse;
 use crate::queries::fetch_messages_after;
 use crate::queries::fetch_paginated_room_messages;
 use crate::queries::getsert_conversation_id;
+use crate::queries::is_conversation_participant;
 use crate::queries::write_direct_message;
 use crate::queries::write_room_message;
 use crate::utils::DbRoomMessageEx;
@@ -39,6 +40,54 @@ pub struct ChatServiceImpl {
 impl ChatServiceImpl {
     pub fn new(session: Arc<Session>, queries: Arc<crate::Queries>) -> Self {
         Self { session, queries }
+    }
+}
+
+/// Logs the real cause and returns a generic message for the caller.
+fn internal_error(context: &str, error: &dyn std::fmt::Display) -> String {
+    tracing::error!("{context}: {error}");
+    "Internal error".to_string()
+}
+
+/// Bounds enforced again here, not only at the gateway: a caller holding the
+/// service secret must not be able to write unbounded rows either.
+const MAX_ID_LEN: usize = 128;
+const MAX_CONTENT_CHARS: usize = 4_000;
+
+fn within_id_bound(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_ID_LEN
+}
+
+fn within_content_bound(value: &str) -> bool {
+    value.chars().count() <= MAX_CONTENT_CHARS
+}
+
+/// A conversation belongs to exactly two users; the caller must be one of them.
+fn caller_is_participant(caller_user_id: &str, user_id_1: &str, user_id_2: &str) -> bool {
+    !caller_user_id.is_empty() && (caller_user_id == user_id_1 || caller_user_id == user_id_2)
+}
+
+/// Rejects reads from callers who are not participants of the conversation.
+///
+/// The gateway identifies the caller from the verified token; chat-service
+/// enforces the rule again so that a direct gRPC call cannot bypass it.
+async fn authorize_conversation(
+    session: &Session,
+    project_id: &str,
+    conversation_id: &str,
+    caller_user_id: &str,
+) -> Result<(), String> {
+    if caller_user_id.is_empty() {
+        return Err("caller_user_id is required".to_string());
+    }
+
+    match is_conversation_participant(session, project_id, conversation_id, caller_user_id).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("Not a participant of this conversation".to_string()),
+        Err(e) => {
+            tracing::error!("conversation membership lookup failed: {e}");
+            Err("Internal error".to_string())
+        }
     }
 }
 
@@ -69,6 +118,18 @@ impl ChatService for ChatServiceImpl {
             }));
         }
 
+        // Only a participant may ask for (or create) the conversation. Without
+        // this, any tenant member could enumerate the conversation ids of any
+        // other pair in the project.
+        if !caller_is_participant(&req.caller_user_id, &req.user_id_1, &req.user_id_2) {
+            return Ok(Response::new(GetSertConversationResponse {
+                success: false,
+                error_message: "Not a participant of this conversation".to_string(),
+                conversation_id: String::new(),
+                created_new: false,
+            }));
+        }
+
         match getsert_conversation_id(
             &self.session,
             &req.project_id,
@@ -85,7 +146,7 @@ impl ChatService for ChatServiceImpl {
             })),
             Err(e) => Ok(Response::new(GetSertConversationResponse {
                 success: false,
-                error_message: e.to_string(),
+                error_message: internal_error("get_sert_conversation failed", &e),
                 conversation_id: String::new(),
                 created_new: false,
             })),
@@ -99,10 +160,20 @@ impl ChatService for ChatServiceImpl {
         let req = request.into_inner();
 
         // 1. Input Validation
-        if req.project_id.is_empty() || req.conversation_id.is_empty() {
+        if !within_id_bound(&req.project_id)
+            || !within_id_bound(&req.sender_id)
+            || !within_id_bound(&req.receiver_id)
+        {
             return Ok(Response::new(WriteDmResponse {
                 success: false,
-                error_message: "project_id and conversation_id are required".to_string(),
+                error_message: "project_id, sender_id and receiver_id are required".to_string(),
+            }));
+        }
+
+        if !within_content_bound(&req.message) {
+            return Ok(Response::new(WriteDmResponse {
+                success: false,
+                error_message: "message is too long".to_string(),
             }));
         }
 
@@ -117,10 +188,42 @@ impl ChatService for ChatServiceImpl {
             }
         };
 
-        // 3. Construct the internal struct
+        // A self-conversation is not a meaningful thread and the lookup would
+        // record the same user twice.
+        if req.sender_id == req.receiver_id {
+            return Ok(Response::new(WriteDmResponse {
+                success: false,
+                error_message: "Cannot message self".to_string(),
+            }));
+        }
+
+        // 3. Resolve the conversation server-side from the authenticated
+        //    sender and the recipient. The client no longer supplies a
+        //    conversation id, so it cannot write into a thread it is not part
+        //    of. Existing conversations keep their id via `dm_lookup`, so
+        //    older threads are not split.
+        let conversation_id = match getsert_conversation_id(
+            &self.session,
+            &req.project_id,
+            &req.sender_id,
+            &req.receiver_id,
+        )
+        .await
+        {
+            Ok((conversation_id, _)) => conversation_id,
+            Err(e) => {
+                tracing::error!("failed to resolve conversation for write: {e}");
+                return Ok(Response::new(WriteDmResponse {
+                    success: false,
+                    error_message: "Internal error".to_string(),
+                }));
+            }
+        };
+
+        // 4. Construct the internal struct
         let message = crate::queries::DirectMessage {
             project_id: req.project_id,
-            conversation_id: req.conversation_id,
+            conversation_id,
             message_id,
             sender_id: req.sender_id,
             recipient_id: req.receiver_id, // Map receiver_id (proto) to recipient_id (db)
@@ -128,16 +231,19 @@ impl ChatService for ChatServiceImpl {
             created_at: CqlTimestamp(req.timestamp),
         };
 
-        // 4. Execute Batch Write
+        // 5. Execute Batch Write
         match write_direct_message(&self.session, message).await {
             Ok(_) => Ok(Response::new(WriteDmResponse {
                 success: true,
                 error_message: String::new(),
             })),
-            Err(e) => Ok(Response::new(WriteDmResponse {
-                success: false,
-                error_message: e.to_string(),
-            })),
+            Err(e) => {
+                tracing::error!("failed to write direct message: {e}");
+                Ok(Response::new(WriteDmResponse {
+                    success: false,
+                    error_message: "Internal error".to_string(),
+                }))
+            }
         }
     }
 
@@ -189,7 +295,7 @@ impl ChatService for ChatServiceImpl {
                 // ... error handling
                 let response = FetchUserConversationsResponse {
                     success: false,
-                    error_message: e.to_string(),
+                    error_message: internal_error("fetch_user_conversations failed", &e),
                     conversations: Vec::new(),
                 };
                 Ok(Response::new(response))
@@ -207,6 +313,21 @@ impl ChatService for ChatServiceImpl {
             return Ok(Response::new(FetchConversationHistoryResponse {
                 success: false,
                 error_message: "project_id and conversation_id are required".to_string(),
+                messages: Vec::new(),
+            }));
+        }
+
+        if let Err(reason) = authorize_conversation(
+            &self.session,
+            &req.project_id,
+            &req.conversation_id,
+            &req.caller_user_id,
+        )
+        .await
+        {
+            return Ok(Response::new(FetchConversationHistoryResponse {
+                success: false,
+                error_message: reason,
                 messages: Vec::new(),
             }));
         }
@@ -239,7 +360,7 @@ impl ChatService for ChatServiceImpl {
             Err(e) => {
                 let response = FetchConversationHistoryResponse {
                     success: false,
-                    error_message: e.to_string(),
+                    error_message: internal_error("fetch_conversation_history failed", &e),
                     messages: Vec::new(),
                 };
                 Ok(Response::new(response))
@@ -273,6 +394,22 @@ impl ChatService for ChatServiceImpl {
             return Ok(Response::new(GetPaginatedMessagesResponse {
                 success: false,
                 error_message: "project_id and conversation_id are required".to_string(),
+                messages: Vec::new(),
+                next_cursor: String::new(),
+            }));
+        }
+
+        if let Err(reason) = authorize_conversation(
+            &self.session,
+            &req.project_id,
+            &req.conversation_id,
+            &req.caller_user_id,
+        )
+        .await
+        {
+            return Ok(Response::new(GetPaginatedMessagesResponse {
+                success: false,
+                error_message: reason,
                 messages: Vec::new(),
                 next_cursor: String::new(),
             }));
@@ -313,7 +450,7 @@ impl ChatService for ChatServiceImpl {
             Err(e) => {
                 let response = GetPaginatedMessagesResponse {
                     success: false,
-                    error_message: e.to_string(),
+                    error_message: internal_error("get_paginated_messages failed", &e),
                     messages: Vec::new(),
                     next_cursor: String::new(),
                 };
@@ -329,10 +466,20 @@ impl ChatService for ChatServiceImpl {
         let req = request.into_inner();
 
         // 1. Validate Inputs
-        if req.project_id.is_empty() || req.room_id.is_empty() {
+        if !within_id_bound(&req.project_id)
+            || !within_id_bound(&req.room_id)
+            || !within_id_bound(&req.sender_id)
+        {
             return Ok(Response::new(WriteRoomMessageResponse {
                 success: false,
                 error_message: "project_id and room_id are required".to_string(),
+            }));
+        }
+
+        if !within_content_bound(&req.content) {
+            return Ok(Response::new(WriteRoomMessageResponse {
+                success: false,
+                error_message: "message is too long".to_string(),
             }));
         }
 
@@ -365,7 +512,7 @@ impl ChatService for ChatServiceImpl {
             })),
             Err(e) => Ok(Response::new(WriteRoomMessageResponse {
                 success: false,
-                error_message: e.to_string(),
+                error_message: internal_error("write_room_message failed", &e),
             })),
         }
     }
@@ -433,7 +580,7 @@ impl ChatService for ChatServiceImpl {
             Err(e) => {
                 let response = GetPaginatedRoomMessagesResponse {
                     success: false,
-                    error_message: e.to_string(),
+                    error_message: internal_error("get_paginated_room_messages failed", &e),
                     messages: Vec::new(),
                     next_cursor: String::new(),
                 };
@@ -465,6 +612,21 @@ impl ChatService for ChatServiceImpl {
             return Ok(Response::new(SyncMessagesResponse {
                 success: false,
                 error_message: "project_id and conversation_id are required".to_string(),
+                messages: Vec::new(),
+            }));
+        }
+
+        if let Err(reason) = authorize_conversation(
+            &self.session,
+            &req.project_id,
+            &req.conversation_id,
+            &req.caller_user_id,
+        )
+        .await
+        {
+            return Ok(Response::new(SyncMessagesResponse {
+                success: false,
+                error_message: reason,
                 messages: Vec::new(),
             }));
         }
@@ -502,11 +664,39 @@ impl ChatService for ChatServiceImpl {
             Err(e) => {
                 let response = SyncMessagesResponse {
                     success: false,
-                    error_message: e.to_string(),
+                    error_message: internal_error("sync_messages failed", &e),
                     messages: Vec::new(),
                 };
                 Ok(Response::new(response))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_participants_may_resolve_a_conversation() {
+        assert!(caller_is_participant("alice", "alice", "bob"));
+        assert!(caller_is_participant("bob", "alice", "bob"));
+    }
+
+    #[test]
+    fn third_parties_and_empty_callers_are_rejected() {
+        assert!(!caller_is_participant("carol", "alice", "bob"));
+        assert!(!caller_is_participant("", "alice", "bob"));
+    }
+
+    #[test]
+    fn identifiers_and_content_are_bounded() {
+        assert!(within_id_bound("user-1"));
+        assert!(!within_id_bound(""));
+        assert!(!within_id_bound(&"a".repeat(MAX_ID_LEN + 1)));
+
+        assert!(within_content_bound("hello"));
+        assert!(within_content_bound(&"a".repeat(MAX_CONTENT_CHARS)));
+        assert!(!within_content_bound(&"a".repeat(MAX_CONTENT_CHARS + 1)));
     }
 }
