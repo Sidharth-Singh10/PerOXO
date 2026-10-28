@@ -19,15 +19,18 @@ COPY build.rs ./
 
 RUN cargo build --release --locked
 
-# Download the health probe once, verifying it against the release checksums.
+# Download the health probe once, verifying it against a pinned digest. The
+# release checksums file names the binary without a path, so checking it
+# requires naming the downloaded file explicitly.
 FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS probe
+
+ARG PROBE_VERSION=v0.4.24
+ARG PROBE_SHA256=7e564681110ee4563637457b91e42f62f96b79618a835bb05ae2305acdcc3db0
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget \
     && rm -rf /var/lib/apt/lists/* \
-    && wget -qO /tmp/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.24/grpc_health_probe-linux-amd64 \
-    && wget -qO /tmp/checksums.txt https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.24/checksums.txt \
-    && grep " grpc_health_probe-linux-amd64$" /tmp/checksums.txt > /tmp/probe.sha256 \
-    && sha256sum -c /tmp/probe.sha256 \
+    && wget -qO /tmp/grpc_health_probe "https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${PROBE_VERSION}/grpc_health_probe-linux-amd64" \
+    && echo "${PROBE_SHA256}  /tmp/grpc_health_probe" | sha256sum -c - \
     && chmod +x /tmp/grpc_health_probe
 
 FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
