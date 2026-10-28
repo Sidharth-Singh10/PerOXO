@@ -1,6 +1,6 @@
 services:
   scylladb:
-    image: scylladb/scylla:latest
+    image: scylladb/scylla:2026.3.4@sha256:d864230da81af7f6cdcf68446a440e0e4a55a0827fcf49af00725f660e8647d3
     container_name: scylla
     volumes:
       - scylla_data:/var/lib/scylla
@@ -18,8 +18,7 @@ services:
       - chat_network
 
   chat-service:
-    build:
-      image: sidharthsingh7/per_oxo_chat_service
+    image: sidharthsingh7/per_oxo_chat_service:latest
     container_name: chat-service
     depends_on:
       scylladb:
@@ -31,47 +30,54 @@ services:
       - SCYLLA_CONSISTENCY=One
       - SCYLLA_REPLICATION_FACTOR=1
       - GRPC_ADDR=[::]:50052
+      - GRPC_SHARED_SECRET=${GRPC_SHARED_SECRET:?set GRPC_SHARED_SECRET}
     healthcheck:
       test: ["CMD", "grpc_health_probe", "-addr=localhost:50052"]
     networks:
       - chat_network
 
+  auth-service:
+    image: sidharthsingh7/per_oxo_auth_service:latest
+    container_name: auth-service
+    ports:
+      - "3004:3004"
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: ./auth-service/.env
+    environment:
+      - GRPC_ADDR=[::]:50053
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+      - GRPC_SHARED_SECRET=${GRPC_SHARED_SECRET:?set GRPC_SHARED_SECRET}
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50053"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - chat_network
+
   per-oxo:
-    build:
-      image: sidharthsingh7/per_oxo:persistence
+    image: sidharthsingh7/per_oxo:persistence
     container_name: per-oxo
     ports:
       - "4001:3000"
     environment:
       - RUST_LOG=debug
-      - GRPC_ADDR=[::]:50051
-      - USER_SERVICE_ADDR=http://user-service:50053
       - CHAT_SERVICE_ADDR=http://chat-service:50052
+      - AUTH_SERVICE_ADDR=http://auth-service:50053
       - PER_OXO_SERVICE_ADDR=0.0.0.0:3000
+      - PER_OXO_METRICS_ADDR=0.0.0.0:9100
+      - GRPC_SHARED_SECRET=${GRPC_SHARED_SECRET:?set GRPC_SHARED_SECRET}
     depends_on:
       chat-service:
         condition: service_healthy
-      user-service:
+      auth-service:
         condition: service_healthy
     networks:
       - chat_network
     restart: unless-stopped
-
-  # user-service:
-  #   build:
-  #     context: ./user-service
-  #     dockerfile: Dockerfile
-  #   container_name: user-service
-  #   ports:
-  #     - "50053:50053"
-  #   environment:
-  #     - RUST_LOG=info
-  #     - GRPC_ADDR=[::]:50053
-  #     - DATABASE_URL=XXXXXXXXXXXXXXXXXXXXXX
-  #   networks:
-  #     - chat_network
-  #   healthcheck:
-  #     test: ["CMD", "grpc_health_probe", "-addr=localhost:50053"]
 
 volumes:
   scylla_data:

@@ -1,4 +1,4 @@
-DIRS := chat-service peroxo user-service
+DIRS := auth-service chat-service peroxo user-service
 
 .PHONY: all fmt
 

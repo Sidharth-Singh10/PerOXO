@@ -1,15 +1,12 @@
-global:  
-  scrape_interval: 5s  
+global:
+  scrape_interval: 5s
   evaluation_interval: 30s
-  
-scrape_configs:  
+
+scrape_configs:
   - job_name: per-oxo
     honor_labels: true
-    static_configs:  
-      - targets: ['per-oxo:3000']  
-    metrics_path: /metrics  
-      
-  # - job_name: 'chat-service'  
-  #   static_configs:  
-  #     - targets: ['chat-service:50052']  
-  #   metrics_path: /metrics
+    static_configs:
+      # Metrics listen on their own port inside the compose network; that port
+      # is deliberately not published to the host.
+      - targets: ['per-oxo:9100']
+    metrics_path: /metrics
